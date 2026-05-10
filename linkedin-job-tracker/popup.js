@@ -12,6 +12,12 @@ function loadSettings() {
 function saveSettings(s) {
   return new Promise(r => chrome.storage.local.set({ settings: s }, r));
 }
+function loadSyncSettings() {
+  return new Promise(r => chrome.storage.sync.get(['openrouterKey', 'selectedModel', 'candidateProfile'], d => r(d)));
+}
+function saveSyncSettings(obj) {
+  return new Promise(r => chrome.storage.sync.set(obj, r));
+}
 
 // ── Utilities ────────────────────────────────────────────────────────────────
 
@@ -137,8 +143,7 @@ async function exportXlsx() {
   const jobs = await loadJobs();
   if (!jobs.length) return;
 
-  const settings  = await loadSettings();
-  const filename  = (settings.filename || 'jobs.xlsx').trim() || 'jobs.xlsx';
+  const filename  = 'jobs.xlsx';
   const buf       = await buildXlsxBuffer();
 
   const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -149,13 +154,15 @@ async function exportXlsx() {
 // ── Settings ─────────────────────────────────────────────────────────────────
 
 async function loadSettingsUI() {
-  const settings = await loadSettings();
-  document.getElementById('filename').value = settings.filename || 'jobs.xlsx';
+  const sync = await loadSyncSettings();
+  document.getElementById('openrouterKey').value = sync.openrouterKey || '';
+  document.getElementById('modelSelect').value = sync.selectedModel || 'deepseek/deepseek-r1-0528-qwen3-8b:free';
 }
 
 async function saveSettingsUI() {
-  const filename = document.getElementById('filename').value.trim() || 'jobs.xlsx';
-  await saveSettings({ filename });
+  const openrouterKey = document.getElementById('openrouterKey').value.trim();
+  const selectedModel = document.getElementById('modelSelect').value;
+  await saveSyncSettings({ openrouterKey, selectedModel });
   flashSaved();
 }
 

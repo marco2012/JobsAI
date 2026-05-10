@@ -6,7 +6,8 @@
   "permissions": ["storage", "downloads"],
   "host_permissions": [
     "https://www.linkedin.com/*",
-    "https://linkedin.com/*"
+    "https://linkedin.com/*",
+    "https://openrouter.ai/*"
   ],
   "content_scripts": [
     {

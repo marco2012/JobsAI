@@ -427,10 +427,19 @@
     <div class="settings">
 
       <div class="field">
-        <label class="field-label" for="filename">Filename</label>
-        <p class="field-hint">Name of the exported file.</p>
-        <input class="field-input" id="filename" type="text"
-               placeholder="jobs.xlsx" spellcheck="false" autocomplete="off" />
+        <label class="field-label" for="openrouterKey">OpenRouter API Key</label>
+        <p class="field-hint">Your OpenRouter API key. Get one at openrouter.ai</p>
+        <input class="field-input" id="openrouterKey" type="password"
+               spellcheck="false" autocomplete="off" />
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="modelSelect">Model</label>
+        <select class="field-input" id="modelSelect">
+          <option value="deepseek/deepseek-r1-0528-qwen3-8b:free" selected>DeepSeek R1 Free</option>
+          <option value="google/gemini-2.5-flash-lite-preview-06-17">Gemini 2.5 Flash Lite</option>
+          <option value="openai/gpt-4.1-nano">GPT-4.1 Nano</option>
+        </select>
       </div>
 
       <div class="settings-footer">
