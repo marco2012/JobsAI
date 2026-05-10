@@ -95,9 +95,6 @@ async function render(page) {
   list.innerHTML = pageJobs.map((job, i) => {
     const chips = [];
     const hasDesc = job.description && job.description.trim().length > 30;
-    const descBadge = hasDesc
-      ? `<span class="desc-ok" title="Description saved">✓</span>`
-      : `<span class="desc-missing" title="No description">–</span>`;
 
     const score = job.fit_score;
     const scoreClass = score == null ? 'score-grey'
@@ -112,7 +109,6 @@ async function render(page) {
       <div class="job-score ${scoreClass}">${scoreLabel}</div>
       <div class="job-info">
         <div class="job-title">
-          ${descBadge}
           <a class="job-title-text" href="${esc(job.url)}" target="_blank" title="${esc(job.title)}">${esc(job.title)}</a>
         </div>
         <div class="job-meta">
