@@ -419,6 +419,21 @@
       font-size: 11.5px;
       color: var(--muted-fg);
       min-height: 16px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* Spinner */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      width: 11px;
+      height: 11px;
+      border: 1.5px solid var(--border);
+      border-top-color: var(--muted-fg);
+      border-radius: 50%;
+      animation: spin 0.65s linear infinite;
+      flex-shrink: 0;
     }
 
     /* Settings footer */

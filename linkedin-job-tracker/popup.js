@@ -539,17 +539,21 @@ document.addEventListener('DOMContentLoaded', async () => {
       statusEl.style.color = 'var(--destructive)';
       return;
     }
+    const spinner = '<span class="spinner"></span>';
     statusEl.style.color = 'var(--muted-fg)';
-    statusEl.textContent = 'Extracting PDF text…';
+    statusEl.innerHTML = `${spinner}Extracting PDF text…`;
     try {
       const text = await extractPdfText(file);
-      statusEl.textContent = 'Generating candidate profile…';
-      const profile = await generateCandidateProfile(text, settings.openrouterKey, settings.selectedModel || 'deepseek/deepseek-v4-flash');
+      statusEl.innerHTML = `${spinner}Generating candidate profile…`;
+      const truncated = text.slice(0, 4000);
+      const profile = await generateCandidateProfile(truncated, settings.openrouterKey, settings.selectedModel || 'deepseek/deepseek-v4-flash');
       document.getElementById('candidateProfileArea').value = profile;
       await saveSyncSettings({ candidateProfile: profile });
+      statusEl.innerHTML = '';
       statusEl.textContent = '✓ Profile generated and saved.';
       statusEl.style.color = 'var(--success)';
     } catch (err) {
+      statusEl.innerHTML = '';
       statusEl.textContent = `Error: ${err.message}`;
       statusEl.style.color = 'var(--destructive)';
     }
