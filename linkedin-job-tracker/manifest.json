@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "LinkedIn Job Tracker",
+  "version": "1.1",
+  "description": "Track LinkedIn jobs and export to jobs.xlsx for the resume pipeline",
+  "permissions": ["storage", "downloads"],
+  "host_permissions": [
+    "https://www.linkedin.com/*",
+    "https://linkedin.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.linkedin.com/jobs/search*",
+        "https://www.linkedin.com/jobs/collections/*",
+        "https://linkedin.com/jobs/search*",
+        "https://linkedin.com/jobs/collections/*"
+      ],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "LinkedIn Job Tracker"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}
