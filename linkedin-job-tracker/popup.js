@@ -65,15 +65,16 @@ async function render(page) {
   const start    = currentPage * PAGE_SIZE;
   const pageJobs = jobs.slice(start, start + PAGE_SIZE);
 
-  const pagerHTML = totalPages > 1 ? `
+  const pagerEl = document.getElementById('pager');
+  pagerEl.innerHTML = `
     <div class="pager">
       <button class="pager-btn" id="prevBtn" ${currentPage === 0 ? 'disabled' : ''}>‹ Prev</button>
       <span class="pager-info">${currentPage + 1} / ${totalPages}</span>
       <button class="pager-btn" id="nextBtn" ${currentPage >= totalPages - 1 ? 'disabled' : ''}>Next ›</button>
-    </div>` : '';
+    </div>`;
 
   list.innerHTML = pageJobs.map((job, i) => {
-    const chips = [job.location, job.postedDate, job.applicants].filter(Boolean)
+    const chips = [job.location, job.postedDate].filter(Boolean)
       .map(c => `<span class="chip">${esc(c)}</span>`).join('');
     const hasDesc = job.description && job.description.trim().length > 30;
     const descBadge = hasDesc
@@ -95,7 +96,7 @@ async function render(page) {
       </div>
       <button class="job-remove" data-idx="${start + i}" title="Remove">✕</button>
     </div>`;
-  }).join('') + pagerHTML;
+  }).join('');
 
   list.querySelectorAll('.job-remove').forEach(btn => {
     btn.addEventListener('click', async () => {
