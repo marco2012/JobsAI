@@ -106,7 +106,7 @@ async function render(page) {
       : 'score-red';
     const scoreLabel = score != null ? score : '–';
 
-    const canGen = !!(sync.resumeText && hasDesc);
+    const canGen = !!(sync.candidateProfile && hasDesc);
     return `
     <div class="job-item">
       <div class="job-score ${scoreClass}">${scoreLabel}</div>
@@ -148,6 +148,7 @@ async function render(page) {
       btn.innerHTML = '<span class="spinner"></span>';
       try {
         const s = await loadSyncSettings();
+        if (!s.resumeText) throw new Error('Re-upload your resume PDF in Settings to enable this');
         console.log(`[resume] generating for "${job.title}" @ "${job.company}"`);
         const content = await generateTailoredResume(job, s.resumeText, s.openrouterKey, s.selectedModel || 'deepseek/deepseek-v4-flash');
         downloadResume(content, job);
