@@ -90,7 +90,7 @@ async function render(page) {
 
     let scoreBadge;
     const score = job.fit_score;
-    if (score == null || score === undefined) {
+    if (score == null) {
       scoreBadge = `<span class="score-badge score-grey">–</span>`;
     } else if (score >= 75) {
       scoreBadge = `<span class="score-badge score-green">${score}</span>`;
@@ -407,6 +407,8 @@ function initScoreAll() {
   });
 
   scoreAllBtn.addEventListener('click', async () => {
+    abortScoring = false;
+
     const sync = await loadSyncSettings();
 
     if (!sync.candidateProfile || !sync.candidateProfile.trim()) {
@@ -428,7 +430,7 @@ function initScoreAll() {
     const candidateProfile = sync.candidateProfile;
 
     const allJobs   = await loadJobs();
-    const unscored  = allJobs.filter(j => j.fit_score == null || j.fit_score === undefined);
+    const unscored  = allJobs.filter(j => j.fit_score == null);
 
     if (unscored.length === 0) {
       setProgressVisible(true);
@@ -437,13 +439,14 @@ function initScoreAll() {
       return;
     }
 
-    abortScoring = false;
     setProgressVisible(true);
     scoreAllBtn.disabled = true;
+    stopBtn.disabled = false;
     progressFill.style.width = '0%';
     progressText.textContent = 'Starting scoring…';
 
     const total = unscored.length;
+    let failed = 0;
 
     for (let i = 0; i < total; i++) {
       if (abortScoring) break;
@@ -464,23 +467,31 @@ function initScoreAll() {
           await saveJobs(stored);
         }
       } catch (err) {
-        progressText.textContent = err.message;
-        setTimeout(() => setProgressVisible(false), 3000);
-        scoreAllBtn.disabled = false;
-        render();
-        return;
+        // 401 = invalid API key — abort immediately, no point retrying
+        if (err.message.includes('401')) {
+          progressText.textContent = err.message;
+          scoreAllBtn.disabled = false;
+          stopBtn.disabled = true;
+          render();
+          return;
+        }
+        // Rate limit / network error — log and continue
+        console.warn(`Score failed for "${job.title}" @ "${job.company}": ${err.message}`);
+        failed++;
       }
 
       render();
     }
 
     progressFill.style.width = '100%';
-    progressText.textContent = abortScoring ? 'Scoring stopped.' : 'Scoring complete.';
+    const baseMsg = abortScoring ? 'Scoring stopped.' : 'Scoring complete.';
+    progressText.textContent = failed > 0 ? `${baseMsg} ${failed} job(s) failed.` : baseMsg;
     setTimeout(() => {
       setProgressVisible(false);
       render();
     }, 3000);
     scoreAllBtn.disabled = false;
+    stopBtn.disabled = true;
   });
 }
 
