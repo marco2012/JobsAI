@@ -366,9 +366,9 @@ Output the complete tailored resume as plain text. Start directly with the resum
   return content.trim();
 }
 
-async function downloadResumePdf(content, job) {
+function downloadResumePdf(content, job) {
   const key = 'resume_print_' + Date.now();
-  await new Promise(r => chrome.storage.local.set({ [key]: { content, title: job.title, company: job.company } }, r));
+  localStorage.setItem(key, JSON.stringify({ content, title: job.title, company: job.company }));
   const url = chrome.runtime.getURL('resume-print.html') + '?key=' + encodeURIComponent(key);
   chrome.tabs.create({ url });
 }

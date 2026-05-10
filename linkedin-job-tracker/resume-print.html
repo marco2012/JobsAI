@@ -32,16 +32,15 @@
     const params = new URLSearchParams(location.search);
     const key = params.get('key');
     if (key) {
-      chrome.storage.local.get(key, d => {
-        const data = d[key];
-        if (data) {
-          document.title = `Resume — ${data.title} @ ${data.company}`;
-          document.getElementById('loading').remove();
-          document.body.appendChild(document.createTextNode(data.content));
-          chrome.storage.local.remove(key);
-          setTimeout(() => window.print(), 400);
-        }
-      });
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const data = JSON.parse(raw);
+        localStorage.removeItem(key);
+        document.title = `Resume — ${data.title} @ ${data.company}`;
+        document.getElementById('loading').remove();
+        document.body.appendChild(document.createTextNode(data.content));
+        setTimeout(() => window.print(), 400);
+      }
     }
   </script>
 </body>
