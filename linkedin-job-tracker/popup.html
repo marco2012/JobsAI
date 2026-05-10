@@ -20,6 +20,30 @@
       --ring:         #18181b;
     }
 
+    [data-theme="dark"] {
+      --bg:           #09090b;
+      --fg:           #fafafa;
+      --muted:        #27272a;
+      --muted-fg:     #a1a1aa;
+      --border:       #27272a;
+      --input:        #27272a;
+      --primary:      #fafafa;
+      --primary-fg:   #18181b;
+      --destructive:  #f87171;
+      --success:      #22c55e;
+      --ring:         #d4d4d8;
+    }
+    [data-theme="dark"] .field-input:focus {
+      box-shadow: 0 0 0 3px rgba(212,212,216,0.15);
+    }
+    [data-theme="dark"] select.field-input {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a1a1aa' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    }
+    [data-theme="dark"] .job-remove:hover { background: rgba(239,68,68,0.12); }
+    [data-theme="dark"] .score-green  { background: #14532d; color: #86efac; }
+    [data-theme="dark"] .score-yellow { background: #713f12; color: #fde047; }
+    [data-theme="dark"] .score-red    { background: #7f1d1d; color: #fca5a5; }
+
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
@@ -531,6 +555,11 @@
       <h1>LinkedIn Job Tracker</h1>
       <div class="header-sub" id="subtitle">Loading…</div>
     </div>
+    <button class="icon-btn" id="themeBtn" title="Toggle dark mode">
+      <svg id="themeIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
+    </button>
     <button class="icon-btn" id="settingsBtn" title="Settings">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="3"/>
@@ -646,6 +675,17 @@
       <div class="settings-footer">
         <button class="btn btn-primary btn-sm" id="saveSettingsBtn">Save settings</button>
         <span class="save-ok" id="saveOk">✓ Saved</span>
+      </div>
+
+      <!-- Data section -->
+      <div class="settings-section" style="margin-top:6px">
+        <span>Data</span><hr>
+      </div>
+
+      <div class="field">
+        <label class="field-label">Generated Resumes</label>
+        <p class="field-hint">Clear all cached tailored resumes so they can be regenerated.</p>
+        <button class="btn btn-ghost btn-sm" id="resetResumesBtn">Reset Generated Resumes</button>
       </div>
 
     </div>

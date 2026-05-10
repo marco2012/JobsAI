@@ -462,6 +462,33 @@ function initSettingsToggle() {
   });
 }
 
+// ── Theme ─────────────────────────────────────────────────────────────────────
+
+const MOON_SVG = `<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>`;
+const SUN_SVG  = `<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>`;
+
+function applyTheme(scheme) {
+  document.documentElement.setAttribute('data-theme', scheme);
+  const icon = document.getElementById('themeIcon');
+  icon.innerHTML = scheme === 'dark' ? SUN_SVG : MOON_SVG;
+  document.getElementById('themeBtn').title = scheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+}
+
+function initTheme() {
+  chrome.storage.local.get('colorScheme', ({ colorScheme }) => {
+    const scheme = colorScheme ||
+      (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    applyTheme(scheme);
+  });
+
+  document.getElementById('themeBtn').addEventListener('click', () => {
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    const next = isDark ? 'light' : 'dark';
+    applyTheme(next);
+    chrome.storage.local.set({ colorScheme: next });
+  });
+}
+
 // ── Track All / Score All progress UI ────────────────────────────────────────
 
 function setProgressVisible(on) {
@@ -609,6 +636,7 @@ function initScoreAll() {
 document.addEventListener('DOMContentLoaded', async () => {
   pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('pdf.worker.min.js');
 
+  initTheme();
   initSettingsToggle();
   initStopBtn();
   initTrackAll();
@@ -637,6 +665,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (changes.scoringState?.newValue) applyScoringState(changes.scoringState.newValue);
     if (changes.trackingState?.newValue) applyTrackingState(changes.trackingState.newValue);
     if (changes.generatedResumes || changes.resumeGenerations) render();
+  });
+
+  document.getElementById('resetResumesBtn').addEventListener('click', async () => {
+    if (!confirm('Clear all generated resumes? You can regenerate them anytime.')) return;
+    await chrome.storage.local.remove('generatedResumes');
+    generatedResumes.clear();
+    render();
   });
 
   document.getElementById('exportBtn').addEventListener('click', exportXlsx);
