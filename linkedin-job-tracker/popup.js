@@ -335,7 +335,14 @@ async function generateTailoredResume(job, resumeText, apiKey, model, format = '
 - Never escape # inside \\newcommand definitions — #1, #2, #3 are argument placeholders, not literal text
 - Keep the same \\begin{document} ... \\end{document} structure
 - Output ONLY the complete .tex file. Start with the document class line (e.g. \\documentclass[...])`
-    : `- Output the complete tailored resume as plain text. Start directly with the resume content.`;
+    : `- Output the resume in Markdown format so it can be rendered as a formatted Word document:
+  - # Candidate Name (H1, one line)
+  - Contact info as a plain line (email | phone | LinkedIn)
+  - ## SECTION HEADINGS (H2) for Experience, Education, Skills, etc.
+  - ### Company | Role | Dates (H3) for each position
+  - - Bullet points for achievements (XYZ formula, metrics required)
+  - **bold** for company names, key metrics, and technologies
+  - Start directly with # Name`;
 
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
@@ -380,16 +387,59 @@ ${job.description || ''}`,
   return content.trim();
 }
 
-function buildDocx(text) {
+function buildDocx(markdown) {
   const x = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const paras = text.split('\n').map(line =>
-    line.trim()
-      ? `<w:p><w:pPr><w:spacing w:after="0" w:line="276" w:lineRule="auto"/></w:pPr><w:r><w:t xml:space="preserve">${x(line)}</w:t></w:r></w:p>`
-      : `<w:p><w:pPr><w:spacing w:after="0"/></w:pPr></w:p>`
-  ).join('');
-  const ct = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`;
-  const rels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
-  const doc = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${paras}<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>`;
+
+  // Render inline bold (**text**) and italic (*text*) as OOXML runs
+  function runs(text, sz) {
+    const szTag = `<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>`;
+    return text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/).map((part, i) => {
+      if (!part) return '';
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return `<w:r><w:rPr><w:b/>${szTag}</w:rPr><w:t xml:space="preserve">${x(part.slice(2,-2))}</w:t></w:r>`;
+      }
+      if (part.startsWith('*') && part.endsWith('*')) {
+        return `<w:r><w:rPr><w:i/>${szTag}</w:rPr><w:t xml:space="preserve">${x(part.slice(1,-1))}</w:t></w:r>`;
+      }
+      return `<w:r><w:rPr>${szTag}</w:rPr><w:t xml:space="preserve">${x(part)}</w:t></w:r>`;
+    }).join('');
+  }
+
+  const paras = markdown.split('\n').map(line => {
+    const t = line.trim();
+
+    if (t.startsWith('# ')) {
+      // Name / H1 — centered, large bold
+      return `<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:before="0" w:after="60"/></w:pPr>` +
+        `<w:r><w:rPr><w:b/><w:sz w:val="36"/><w:szCs w:val="36"/></w:rPr><w:t>${x(t.slice(2))}</w:t></w:r></w:p>`;
+    }
+    if (t.startsWith('## ')) {
+      // Section heading — bold uppercase with bottom border
+      return `<w:p><w:pPr><w:spacing w:before="160" w:after="40"/>` +
+        `<w:pBdr><w:bottom w:val="single" w:sz="4" w:space="1" w:color="000000"/></w:pBdr></w:pPr>` +
+        `<w:r><w:rPr><w:b/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr><w:t>${x(t.slice(3).toUpperCase())}</w:t></w:r></w:p>`;
+    }
+    if (t.startsWith('### ')) {
+      // Job / company line — bold
+      return `<w:p><w:pPr><w:spacing w:before="80" w:after="0"/></w:pPr>${runs(t.slice(4), '22')}</w:p>`;
+    }
+    if (t.startsWith('- ') || t.startsWith('* ')) {
+      // Bullet point with hanging indent
+      return `<w:p><w:pPr><w:spacing w:after="0"/><w:ind w:left="360" w:hanging="180"/></w:pPr>` +
+        `<w:r><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">• </w:t></w:r>` +
+        runs(t.slice(2), '20') + `</w:p>`;
+    }
+    if (!t) {
+      return `<w:p><w:pPr><w:spacing w:after="0" w:before="0"/></w:pPr></w:p>`;
+    }
+    // Regular paragraph (contact line, summary, etc.)
+    return `<w:p><w:pPr><w:spacing w:after="0"/></w:pPr>${runs(t, '20')}</w:p>`;
+  }).join('');
+
+  const ct   = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`;
+  const rels  = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
+  const doc   = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${paras}<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>`;
+
   const zip = new JSZip();
   zip.file('[Content_Types].xml', ct);
   zip.folder('_rels').file('.rels', rels);
