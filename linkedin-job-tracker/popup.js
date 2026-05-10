@@ -44,6 +44,10 @@ function saveSyncSettings(obj) {
   return new Promise(r => chrome.storage.sync.set(obj, r));
 }
 
+function notify(title, message) {
+  chrome.runtime.sendMessage({ action: 'notify', title, message });
+}
+
 // ── Utilities ────────────────────────────────────────────────────────────────
 
 function esc(str) {
@@ -522,6 +526,7 @@ function initTrackAll() {
           updateProgress(msg.total, msg.total, msg.skipped, msg.failed);
           document.getElementById('progressText').textContent =
             `Done! ${msg.done} new, ${msg.skipped} already tracked${msg.failed ? `, ${msg.failed} failed` : ''}`;
+          notify('Track All complete', `${msg.done} new job${msg.done !== 1 ? 's' : ''} tracked`);
           finish();
         } else if (msg.type === 'stopped') {
           document.getElementById('progressFill').style.width = '100%';
@@ -687,6 +692,7 @@ function initScoreAll() {
     progressFill.style.width = '100%';
     const baseMsg = abortScoring ? 'Scoring stopped.' : 'Scoring complete.';
     progressText.textContent = failed > 0 ? `${baseMsg} ${failed} job(s) failed.` : baseMsg;
+    if (!abortScoring) notify('Scoring complete', failed > 0 ? `${failed} job(s) failed` : `All jobs scored`);
     setTimeout(() => {
       setProgressVisible(false);
       render();

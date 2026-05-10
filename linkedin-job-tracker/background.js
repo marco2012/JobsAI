@@ -13,8 +13,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     handleGenerate(msg).catch(console.error);
     sendResponse({ queued: true });
   }
+  if (msg.action === 'notify') {
+    notify(msg.title, msg.message);
+    sendResponse({});
+  }
   return false;
 });
+
+function notify(title, message) {
+  chrome.notifications.create({
+    type: 'basic',
+    iconUrl: 'icons/icon48.png',
+    title,
+    message,
+  });
+}
 
 async function handleGenerate({ jobUrl, job, resumeText, apiKey, model, format }) {
   try {
@@ -24,10 +37,12 @@ async function handleGenerate({ jobUrl, job, resumeText, apiKey, model, format }
     generatedResumes[jobUrl] = content;
     delete resumeGenerations[jobUrl];
     await chrome.storage.local.set({ generatedResumes, resumeGenerations });
+    notify('Resume ready', `${job.title} @ ${job.company} — click the download icon`);
   } catch (err) {
     const { resumeGenerations = {} } = await chrome.storage.local.get('resumeGenerations');
     resumeGenerations[jobUrl] = { status: 'error', error: err.message };
     await chrome.storage.local.set({ resumeGenerations });
+    notify('Resume generation failed', err.message);
   }
 }
 
