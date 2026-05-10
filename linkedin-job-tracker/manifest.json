@@ -3,7 +3,7 @@
   "name": "LinkedIn Job Tracker",
   "version": "1.1",
   "description": "Track LinkedIn jobs and export to jobs.xlsx for the resume pipeline",
-  "permissions": ["storage", "downloads"],
+  "permissions": ["storage", "downloads", "tabs"],
   "host_permissions": [
     "https://www.linkedin.com/*",
     "https://linkedin.com/*",

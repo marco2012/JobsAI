@@ -1,3 +1,6 @@
+// ── In-session resume cache (url → generated text) ───────────────────────────
+const generatedResumes = new Map();
+
 // ── chrome.storage helpers ───────────────────────────────────────────────────
 
 function loadJobs() {
@@ -104,6 +107,21 @@ async function render(page) {
     const scoreLabel = score != null ? score : '–';
 
     const canGen = !!(sync.candidateProfile && hasDesc);
+    const hasResume = generatedResumes.has(job.url);
+    const genDisabled = !hasResume && !canGen;
+    const genTitle = hasResume ? 'Download tailored resume (PDF)'
+      : canGen ? 'Generate tailored resume'
+      : 'No description available';
+    const genIcon = hasResume
+      ? `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+           <polyline points="7 10 12 15 17 10"/>
+           <line x1="12" y1="15" x2="12" y2="3"/>
+         </svg>`
+      : `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+           <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+           <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+         </svg>`;
     return `
     <div class="job-item">
       <div class="job-score ${scoreClass}">${scoreLabel}</div>
@@ -116,13 +134,13 @@ async function render(page) {
           ${job.location ? `<span class="job-sep"></span><span class="job-location">${esc(job.location)}</span>` : ''}
         </div>
       </div>
-      <button class="job-gen-btn" data-url="${esc(job.url)}" title="${canGen ? 'Generate tailored resume' : 'No description available'}" ${canGen ? '' : 'disabled'}>
+      <button class="job-gen-btn${hasResume ? ' job-gen-btn--ready' : ''}" data-url="${esc(job.url)}" title="${genTitle}" ${genDisabled ? 'disabled' : ''}>${genIcon}</button>
+      <button class="job-remove" data-idx="${start + i}" title="Remove">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+          <path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
         </svg>
       </button>
-      <button class="job-remove" data-idx="${start + i}" title="Remove">✕</button>
     </div>`;
   }).join('');
 
@@ -139,6 +157,14 @@ async function render(page) {
     btn.addEventListener('click', async () => {
       const job = pageJobs.find(j => j.url === btn.dataset.url);
       if (!job) return;
+
+      // Already generated — download immediately
+      if (generatedResumes.has(job.url)) {
+        downloadResumePdf(generatedResumes.get(job.url), job);
+        return;
+      }
+
+      // Generate
       const origHTML = btn.innerHTML;
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner"></span>';
@@ -147,10 +173,8 @@ async function render(page) {
         if (!s.resumeText) throw new Error('Re-upload your resume PDF in Settings to enable this');
         console.log(`[resume] generating for "${job.title}" @ "${job.company}"`);
         const content = await generateTailoredResume(job, s.resumeText, s.openrouterKey, s.selectedModel || 'deepseek/deepseek-v4-flash');
-        downloadResume(content, job);
-        btn.innerHTML = '✓';
-        btn.style.color = 'var(--success)';
-        setTimeout(() => { btn.innerHTML = origHTML; btn.style.color = ''; btn.disabled = false; }, 2000);
+        generatedResumes.set(job.url, content);
+        await render(); // shows download icon
       } catch (err) {
         console.error('[resume]', err.message);
         btn.innerHTML = '!';
@@ -325,12 +349,11 @@ Output the complete tailored resume as plain text. Start directly with the resum
   return content.trim();
 }
 
-function downloadResume(content, job) {
-  const sanitize = s => (s || '').replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_').slice(0, 40);
-  const filename = `resume_${sanitize(job.company)}_${sanitize(job.title)}.txt`;
-  const blob = new Blob([content], { type: 'text/plain' });
-  const url = URL.createObjectURL(blob);
-  chrome.downloads.download({ url, filename, saveAs: false }, () => URL.revokeObjectURL(url));
+async function downloadResumePdf(content, job) {
+  const key = 'resume_print_' + Date.now();
+  await new Promise(r => chrome.storage.local.set({ [key]: { content, title: job.title, company: job.company } }, r));
+  const url = chrome.runtime.getURL('resume-print.html') + '?key=' + encodeURIComponent(key);
+  chrome.tabs.create({ url });
 }
 
 // ── Settings ─────────────────────────────────────────────────────────────────

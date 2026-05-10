@@ -290,19 +290,23 @@
     }
     .job-gen-btn:hover:not(:disabled) { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
     .job-gen-btn:disabled { opacity: 0.3; cursor: default; }
+    .job-gen-btn--ready { border-color: var(--success); color: var(--success); }
+    .job-gen-btn--ready:hover:not(:disabled) { background: var(--success); border-color: var(--success); color: #fff; }
 
     .job-remove {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
       background: none;
       border: none;
       cursor: pointer;
       color: var(--muted-fg);
       opacity: 0.45;
-      padding: 2px 4px;
-      border-radius: 4px;
-      font-size: 13px;
+      border-radius: var(--radius);
       flex-shrink: 0;
       transition: opacity 0.15s, color 0.15s, background 0.15s;
-      line-height: 1;
     }
     .job-remove:hover { opacity: 1; color: var(--destructive); background: #fef2f2; }
 

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Resume Preview</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      font-size: 11pt;
+      line-height: 1.6;
+      color: #000;
+      max-width: 780px;
+      margin: 0.75in auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    @media print {
+      body { margin: 0.5in; max-width: none; }
+    }
+    #loading {
+      font-family: sans-serif;
+      font-size: 14px;
+      color: #71717a;
+      text-align: center;
+      margin-top: 40px;
+    }
+  </style>
+</head>
+<body>
+  <div id="loading">Preparing resume…</div>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const key = params.get('key');
+    if (key) {
+      chrome.storage.local.get(key, d => {
+        const data = d[key];
+        if (data) {
+          document.title = `Resume — ${data.title} @ ${data.company}`;
+          document.getElementById('loading').remove();
+          document.body.appendChild(document.createTextNode(data.content));
+          chrome.storage.local.remove(key);
+          setTimeout(() => window.print(), 400);
+        }
+      });
+    }
+  </script>
+</body>
+</html>
