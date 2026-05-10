@@ -1,4 +1,5 @@
 .DS_Store
+.wolf/
 .playwright-mcp/
 optimizer/resume.tex
 optimizer/resume.docx
@@ -11,4 +12,5 @@ optimizer/resumes/
 *.out
 node_modules/
 .texpadtmp/
-.jobs_cache/.claude/worktrees/
+.jobs_cache/
+.claude/worktrees/
