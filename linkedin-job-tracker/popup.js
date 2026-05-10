@@ -237,7 +237,7 @@ ${resumeText}`,
 async function loadSettingsUI() {
   const sync = await loadSyncSettings();
   document.getElementById('openrouterKey').value = sync.openrouterKey || '';
-  document.getElementById('modelSelect').value = sync.selectedModel || 'deepseek/deepseek-r1-0528-qwen3-8b:free';
+  document.getElementById('modelSelect').value = sync.selectedModel || 'deepseek/deepseek-v4-flash';
   document.getElementById('candidateProfileArea').value = sync.candidateProfile || '';
 }
 
@@ -410,6 +410,8 @@ function initScoreAll() {
 
   stopBtn.addEventListener('click', () => {
     abortScoring = true;
+    stopBtn.disabled = true;
+    stopBtn.textContent = 'Stopping…';
   });
 
   scoreAllBtn.addEventListener('click', async () => {
@@ -432,7 +434,7 @@ function initScoreAll() {
     }
 
     const apiKey   = sync.openrouterKey;
-    const model    = sync.selectedModel || 'deepseek/deepseek-r1-0528-qwen3-8b:free';
+    const model    = sync.selectedModel || 'deepseek/deepseek-v4-flash';
     const candidateProfile = sync.candidateProfile;
 
     const allJobs   = await loadJobs();
@@ -448,6 +450,7 @@ function initScoreAll() {
     setProgressVisible(true);
     scoreAllBtn.disabled = true;
     stopBtn.disabled = false;
+    stopBtn.textContent = 'Stop';
     progressFill.style.width = '0%';
     progressText.textContent = 'Starting scoring…';
 
@@ -541,7 +544,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       const text = await extractPdfText(file);
       statusEl.textContent = 'Generating candidate profile…';
-      const profile = await generateCandidateProfile(text, settings.openrouterKey, settings.selectedModel || 'deepseek/deepseek-r1-0528-qwen3-8b:free');
+      const profile = await generateCandidateProfile(text, settings.openrouterKey, settings.selectedModel || 'deepseek/deepseek-v4-flash');
       document.getElementById('candidateProfileArea').value = profile;
       await saveSyncSettings({ candidateProfile: profile });
       statusEl.textContent = '✓ Profile generated and saved.';
