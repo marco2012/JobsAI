@@ -1,0 +1,16 @@
+.DS_Store
+.wolf/
+.playwright-mcp/
+optimizer/resume.tex
+optimizer/resume.docx
+optimizer/jobs.xlsx
+optimizer/results.jsonl
+optimizer/resumes/
+*.pdf
+*.aux
+*.log
+*.out
+node_modules/
+.texpadtmp/
+.jobs_cache/
+.claude/worktrees/
