@@ -201,6 +201,8 @@ function extractPdfText(file) {
 }
 
 async function generateCandidateProfile(resumeText, apiKey, model) {
+  console.log('[profile] model:', model, '| resume chars:', resumeText.length);
+
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -226,13 +228,21 @@ ${resumeText}`,
     }),
   });
 
+  console.log('[profile] HTTP status:', response.status);
   if (response.status === 401) throw new Error('Invalid API key (401)');
   if (response.status === 429) throw new Error('Rate limited (429) — try again later');
   if (!response.ok) throw new Error(`OpenRouter error ${response.status}`);
 
   const data = await response.json();
+  console.log('[profile] response:', JSON.stringify(data).slice(0, 500));
+
   if (!data.choices?.length) throw new Error('No response from model');
-  return data.choices[0].message.content.trim();
+
+  // Some models (e.g. DeepSeek reasoning) return null content with reasoning_content instead
+  const msg = data.choices[0].message;
+  const content = msg.content ?? msg.reasoning_content ?? '';
+  if (!content.trim()) throw new Error('Model returned empty content');
+  return content.trim();
 }
 
 // ── Settings ─────────────────────────────────────────────────────────────────
