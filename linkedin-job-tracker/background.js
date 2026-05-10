@@ -72,7 +72,7 @@ ${resumeText}
 JOB DESCRIPTION:
 ${job.description || ''}`,
       }],
-      max_tokens: 2000,
+      max_tokens: isTex ? 4000 : 2000,
     }),
   });
 

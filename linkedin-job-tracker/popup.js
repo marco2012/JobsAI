@@ -404,7 +404,7 @@ async function downloadResume(content, job, format) {
   const base = `resume_${san(job.company)}_${san(job.title)}`;
   let blob, filename;
   if (format === 'tex') {
-    blob = new Blob([content], { type: 'text/plain' });
+    blob = new Blob([content], { type: 'application/octet-stream' });
     filename = base + '.tex';
   } else {
     blob = await buildDocx(content);
