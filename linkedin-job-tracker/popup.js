@@ -111,7 +111,7 @@ async function render(page) {
       <div class="job-info">
         <div class="job-title">
           ${descBadge}
-          <span class="job-title-text" title="${esc(job.title)}">${esc(job.title)}</span>
+          <a class="job-title-text" href="${esc(job.url)}" target="_blank" title="${esc(job.title)}">${esc(job.title)}</a>
         </div>
         <div class="job-meta">
           <span class="job-company">${esc(job.company)}</span>
