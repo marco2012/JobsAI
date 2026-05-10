@@ -507,7 +507,7 @@ function initScoreAll() {
         failed++;
       }
 
-      render();
+      await render();
     }
 
     progressFill.style.width = '100%';
