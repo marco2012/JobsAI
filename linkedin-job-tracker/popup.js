@@ -156,23 +156,25 @@ function flashSaved() {
   setTimeout(() => el.classList.remove('show'), 2000);
 }
 
-// ── Tabs ─────────────────────────────────────────────────────────────────────
+// ── Settings toggle ──────────────────────────────────────────────────────────
 
-function initTabs() {
-  document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-      btn.classList.add('active');
-      document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
-    });
+function initSettingsToggle() {
+  const btn      = document.getElementById('settingsBtn');
+  const viewJobs = document.getElementById('view-jobs');
+  const viewSett = document.getElementById('view-settings');
+
+  btn.addEventListener('click', () => {
+    const open = viewSett.style.display !== 'none';
+    viewSett.style.display = open ? 'none' : '';
+    viewJobs.style.display = open ? ''     : 'none';
+    btn.classList.toggle('active', !open);
   });
 }
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', async () => {
-  initTabs();
+  initSettingsToggle();
   await render();
   await loadSettingsUI();
 

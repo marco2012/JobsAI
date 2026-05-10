@@ -2,6 +2,8 @@
 
 Automatically score LinkedIn jobs against your resume and generate a tailored PDF resume for every strong match — one per job, in one command.
 
+<img src="screenshot.png" width="300" />
+
 ## How it works
 
 ```
