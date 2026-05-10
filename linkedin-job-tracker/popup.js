@@ -93,8 +93,7 @@ async function render(page) {
     </div>`;
 
   list.innerHTML = pageJobs.map((job, i) => {
-    const chips = [job.location].filter(Boolean)
-      .map(c => `<span class="chip">${esc(c)}</span>`).join('');
+    const chips = [];
     const hasDesc = job.description && job.description.trim().length > 30;
     const descBadge = hasDesc
       ? `<span class="desc-ok" title="Description saved">✓</span>`
@@ -116,6 +115,7 @@ async function render(page) {
         </div>
         <div class="job-meta">
           <span class="job-company">${esc(job.company)}</span>
+          ${job.location ? `<span class="job-sep"></span><span class="job-location">${esc(job.location)}</span>` : ''}
         </div>
         ${chips ? `<div class="job-chips">${chips}</div>` : ''}
       </div>
