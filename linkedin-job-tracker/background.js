@@ -69,10 +69,14 @@ async function handleGenerate({ jobUrl, job, resumeText, apiKey, model, format }
     await chrome.storage.local.set({ generatedResumes, resumeGenerations });
     notify('Resume ready', `${job.title} @ ${job.company} — click the download icon`);
   } catch (err) {
+    const message = err.name === 'TimeoutError'
+      ? 'Timed out after 3 min — try a faster model'
+      : err.message;
+    console.error(`[resume] Failed: ${message}`);
     const { resumeGenerations = {} } = await chrome.storage.local.get('resumeGenerations');
-    resumeGenerations[jobUrl] = { status: 'error', error: err.message };
+    resumeGenerations[jobUrl] = { status: 'error', error: message };
     await chrome.storage.local.set({ resumeGenerations });
-    notify('Resume generation failed', err.message);
+    notify('Resume generation failed', message);
   }
 }
 
@@ -92,8 +96,10 @@ async function fetchResume(job, resumeText, apiKey, model, format) {
   - **bold** for company names, key metrics, and technologies
   - Start directly with # Name`;
 
+  console.log(`[resume] Generating for model=${model} format=${format}`);
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
+    signal: AbortSignal.timeout(180_000),
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model,
@@ -131,6 +137,7 @@ ${job.description || ''}`,
   const msg = choice.message;
   const content = msg.content ?? msg.reasoning_content ?? msg.reasoning ?? '';
   if (!content.trim()) throw new Error('Model returned empty content');
+  console.log(`[resume] Done — ${content.trim().length} chars`);
   return content.trim();
 }
 

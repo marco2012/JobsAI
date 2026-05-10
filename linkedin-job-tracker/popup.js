@@ -2,6 +2,7 @@
 const generatedResumes = new Map();
 let resumeGenerations = {}; // { [url]: { status: 'pending'|'error', error?, startedAt } }
 let progressMode = null; // 'scoring' | 'tracking' | null
+let generatingTimer = null;
 
 function loadGeneratedResumes() {
   return new Promise(r => chrome.storage.local.get(['generatedResumes', 'resumeGenerations'], d => {
@@ -166,6 +167,8 @@ async function render(page) {
           <span class="job-company">${esc(job.company)}</span>
           ${job.location ? `<span class="job-sep"></span><span class="job-location">${esc(job.location)}</span>` : ''}
         </div>
+        ${isGenerating ? `<p class="job-generating"><span class="spinner"></span><span data-started-at="${genState.startedAt || Date.now()}">Generating…</span></p>` : ''}
+        ${genError ? `<p class="job-generating" style="color:var(--destructive)">⚠ ${esc(genError)}</p>` : ''}
       </div>
       <button class="${genBtnClass}" data-url="${esc(job.url)}" title="${esc(genBtnTitle)}" ${genBtnDisabled ? 'disabled' : ''}>${genBtnContent}</button>
       <button class="job-remove" data-idx="${start + i}" title="Remove">
@@ -224,6 +227,22 @@ async function render(page) {
 
   document.getElementById('prevBtn')?.addEventListener('click', () => render(currentPage - 1));
   document.getElementById('nextBtn')?.addEventListener('click', () => render(currentPage + 1));
+
+  // Tick elapsed-time labels for pending generations without re-rendering
+  const hasPending = Object.values(resumeGenerations).some(g => g?.status === 'pending');
+  if (hasPending && !generatingTimer) {
+    generatingTimer = setInterval(() => {
+      const now = Date.now();
+      document.querySelectorAll('[data-started-at]').forEach(el => {
+        const secs = Math.floor((now - +el.dataset.startedAt) / 1000);
+        const m = Math.floor(secs / 60);
+        el.textContent = `Generating… ${m > 0 ? `${m}m ` : ''}${secs % 60}s`;
+      });
+    }, 1000);
+  } else if (!hasPending && generatingTimer) {
+    clearInterval(generatingTimer);
+    generatingTimer = null;
+  }
 }
 
 // ── Build XLSX buffer ────────────────────────────────────────────────────────
