@@ -66,9 +66,6 @@ function saveJobs(jobs) {
 
 async function handleGenerate({ jobUrl, job, resumeText, apiKey, model, format }) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => {
-    controller.abort(new DOMException('Timed out after 5 min — try a faster model', 'TimeoutError'));
-  }, 300_000);
   activeGenerations.set(jobUrl, controller);
 
   try {
@@ -87,19 +84,22 @@ async function handleGenerate({ jobUrl, job, resumeText, apiKey, model, format }
       await chrome.storage.local.set({ resumeGenerations });
       return;
     }
-    const message = err.name === 'TimeoutError' ? err.message : err.message;
+    const message = err.name === 'TimeoutError'
+      ? 'Timed out after 5 min — try a faster model'
+      : err.message;
     console.error(`[resume] Failed: ${message}`);
     const { resumeGenerations = {} } = await chrome.storage.local.get('resumeGenerations');
     resumeGenerations[jobUrl] = { status: 'error', error: message };
     await chrome.storage.local.set({ resumeGenerations });
     notify('Resume generation failed', message);
   } finally {
-    clearTimeout(timeoutId);
     activeGenerations.delete(jobUrl);
   }
 }
 
-async function fetchResume(job, resumeText, apiKey, model, format, signal) {
+async function fetchResume(job, resumeText, apiKey, model, format, userSignal) {
+  // Combine user-cancel signal with a native timeout (setTimeout is unreliable in SW)
+  const signal = AbortSignal.any([userSignal, AbortSignal.timeout(300_000)]);
   const isTex = format === 'tex';
   const formatRules = isTex
     ? `- Preserve ALL LaTeX commands, packages, document class, and preamble exactly as-is
