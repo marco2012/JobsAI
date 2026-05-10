@@ -14,3 +14,5 @@ node_modules/
 .texpadtmp/
 .jobs_cache/
 .claude/worktrees/
+linkedin-job-tracker/pdf.min.js
+linkedin-job-tracker/pdf.worker.min.js

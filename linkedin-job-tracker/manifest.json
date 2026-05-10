@@ -28,5 +28,6 @@
   },
   "background": {
     "service_worker": "background.js"
-  }
+  },
+  "web_accessible_resources": [{"resources": ["pdf.worker.min.js"], "matches": ["<all_urls>"]}]
 }

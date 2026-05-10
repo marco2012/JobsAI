@@ -164,9 +164,9 @@ function extractPdfText(file) {
         for (let i = 1; i <= pdf.numPages; i++) {
           const page = await pdf.getPage(i);
           const content = await page.getTextContent();
-          pageTexts.push(content.items.map(item => item.str).join(' '));
+          pageTexts.push(content.items.filter(item => item.str.trim()).map(item => item.str).join(' '));
         }
-        resolve(pageTexts.join(' '));
+        resolve(pageTexts.join('\n\n'));
       } catch (err) {
         reject(err);
       }
@@ -207,6 +207,7 @@ ${resumeText}`,
   if (!response.ok) throw new Error(`OpenRouter error ${response.status}`);
 
   const data = await response.json();
+  if (!data.choices?.length) throw new Error('No response from model');
   return data.choices[0].message.content.trim();
 }
 
@@ -358,6 +359,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     const file = e.target.files[0];
     if (!file) return;
     const statusEl = document.getElementById('uploadStatus');
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      statusEl.textContent = 'Please upload a PDF file.';
+      statusEl.style.color = 'var(--destructive)';
+      return;
+    }
     const settings = await loadSyncSettings();
     if (!settings.openrouterKey) {
       statusEl.textContent = 'Please set your OpenRouter API key first.';
@@ -373,7 +379,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.getElementById('candidateProfileArea').value = profile;
       await saveSyncSettings({ candidateProfile: profile });
       statusEl.textContent = '✓ Profile generated and saved.';
-      statusEl.style.color = '#16a34a';
+      statusEl.style.color = 'var(--success)';
     } catch (err) {
       statusEl.textContent = `Error: ${err.message}`;
       statusEl.style.color = 'var(--destructive)';
