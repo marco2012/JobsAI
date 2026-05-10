@@ -151,18 +151,79 @@ async function exportXlsx() {
   chrome.downloads.download({ url, filename, saveAs: false }, () => URL.revokeObjectURL(url));
 }
 
+// ── PDF helpers ──────────────────────────────────────────────────────────────
+
+function extractPdfText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const arrayBuffer = e.target.result;
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        const pageTexts = [];
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          pageTexts.push(content.items.map(item => item.str).join(' '));
+        }
+        resolve(pageTexts.join(' '));
+      } catch (err) {
+        reject(err);
+      }
+    };
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+async function generateCandidateProfile(resumeText, apiKey, model) {
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      messages: [{
+        role: 'user',
+        content: `You are a resume parser. From the resume text provided, extract a concise candidate profile:
+- Top 10 technical and soft skills
+- Total years of professional experience
+- Role types the candidate has held (e.g. "Senior Software Engineer", "Product Manager")
+- Full tech stack mentioned
+Output ONLY a plain-text summary. Maximum 200 words. No bullet symbols, no markdown.
+Label it internally as CANDIDATE_PROFILE.
+
+Resume:
+${resumeText}`,
+      }],
+      max_tokens: 300,
+    }),
+  });
+
+  if (response.status === 401) throw new Error('Invalid API key (401)');
+  if (response.status === 429) throw new Error('Rate limited (429) — try again later');
+  if (!response.ok) throw new Error(`OpenRouter error ${response.status}`);
+
+  const data = await response.json();
+  return data.choices[0].message.content.trim();
+}
+
 // ── Settings ─────────────────────────────────────────────────────────────────
 
 async function loadSettingsUI() {
   const sync = await loadSyncSettings();
   document.getElementById('openrouterKey').value = sync.openrouterKey || '';
   document.getElementById('modelSelect').value = sync.selectedModel || 'deepseek/deepseek-r1-0528-qwen3-8b:free';
+  document.getElementById('candidateProfileArea').value = sync.candidateProfile || '';
 }
 
 async function saveSettingsUI() {
   const openrouterKey = document.getElementById('openrouterKey').value.trim();
   const selectedModel = document.getElementById('modelSelect').value;
-  await saveSyncSettings({ openrouterKey, selectedModel });
+  const profile = document.getElementById('candidateProfileArea').value.trim();
+  await saveSyncSettings({ openrouterKey, selectedModel, candidateProfile: profile });
   flashSaved();
 }
 
@@ -278,6 +339,8 @@ function initTrackAll() {
 // ── Init ─────────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', async () => {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('pdf.worker.min.js');
+
   initSettingsToggle();
   initTrackAll();
   await render();
@@ -290,4 +353,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     render();
   });
   document.getElementById('saveSettingsBtn').addEventListener('click', saveSettingsUI);
+
+  document.getElementById('resumeUpload').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const statusEl = document.getElementById('uploadStatus');
+    const settings = await loadSyncSettings();
+    if (!settings.openrouterKey) {
+      statusEl.textContent = 'Please set your OpenRouter API key first.';
+      statusEl.style.color = 'var(--destructive)';
+      return;
+    }
+    statusEl.style.color = 'var(--muted-fg)';
+    statusEl.textContent = 'Extracting PDF text…';
+    try {
+      const text = await extractPdfText(file);
+      statusEl.textContent = 'Generating candidate profile…';
+      const profile = await generateCandidateProfile(text, settings.openrouterKey, settings.selectedModel || 'deepseek/deepseek-r1-0528-qwen3-8b:free');
+      document.getElementById('candidateProfileArea').value = profile;
+      await saveSyncSettings({ candidateProfile: profile });
+      statusEl.textContent = '✓ Profile generated and saved.';
+      statusEl.style.color = '#16a34a';
+    } catch (err) {
+      statusEl.textContent = `Error: ${err.message}`;
+      statusEl.style.color = 'var(--destructive)';
+    }
+  });
 });

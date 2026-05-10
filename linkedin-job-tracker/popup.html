@@ -442,6 +442,21 @@
         </select>
       </div>
 
+      <div class="field">
+        <label class="field-label" for="resumeUpload">Resume (PDF)</label>
+        <p class="field-hint">Upload your resume to generate a candidate profile for job scoring.</p>
+        <input type="file" accept=".pdf" id="resumeUpload" class="field-input" style="padding: 6px 10px; cursor: pointer;" />
+        <span id="uploadStatus" style="font-size:11.5px; color: var(--muted-fg); margin-top: 4px;"></span>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="candidateProfileArea">Candidate Profile</label>
+        <p class="field-hint">Auto-generated from your resume. You can edit it manually and save.</p>
+        <textarea id="candidateProfileArea" class="field-input" rows="6"
+          placeholder="Upload your resume above to generate a profile…"
+          style="resize: vertical; font-family: inherit; line-height: 1.5;"></textarea>
+      </div>
+
       <div class="settings-footer">
         <button class="btn btn-primary btn-sm" id="saveSettingsBtn">Save settings</button>
         <span class="save-ok" id="saveOk">✓ Saved</span>
@@ -450,6 +465,7 @@
     </div>
   </div>
 
+  <script src="pdf.min.js"></script>
   <script src="xlsx.mini.min.js"></script>
   <script src="popup.js"></script>
 </body>
