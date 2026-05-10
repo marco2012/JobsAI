@@ -478,6 +478,7 @@ async function loadSettingsUI() {
   if (local.resumeFilename) {
     document.getElementById('fileInputText').textContent = local.resumeFilename;
   }
+  document.getElementById('genProfileBtn').disabled = !local.resumeText;
 }
 
 async function saveSettingsUI() {
@@ -769,6 +770,37 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   document.getElementById('saveSettingsBtn').addEventListener('click', saveSettingsUI);
 
+  document.getElementById('genProfileBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('genProfileBtn');
+    const statusEl = document.getElementById('uploadStatus');
+    const spinner = '<span class="spinner"></span>';
+    const [sync, local] = await Promise.all([loadSyncSettings(), loadLocalResumeData()]);
+    if (!local.resumeText) return;
+    if (!sync.openrouterKey) {
+      statusEl.textContent = 'Please set your OpenRouter API key first.';
+      statusEl.style.color = 'var(--destructive)';
+      return;
+    }
+    btn.disabled = true;
+    statusEl.style.color = 'var(--muted-fg)';
+    statusEl.innerHTML = `${spinner}Generating candidate profile…`;
+    try {
+      const profile = await generateCandidateProfile(local.resumeText, sync.openrouterKey, sync.selectedModel || 'deepseek/deepseek-v4-flash');
+      document.getElementById('candidateProfileArea').value = profile;
+      await saveSyncSettings({ candidateProfile: profile });
+      statusEl.innerHTML = '';
+      statusEl.textContent = '✓ Profile generated and saved.';
+      statusEl.style.color = 'var(--success)';
+      btn.disabled = false;
+      render();
+    } catch (err) {
+      statusEl.innerHTML = '';
+      statusEl.textContent = `Error: ${err.message}`;
+      statusEl.style.color = 'var(--destructive)';
+      btn.disabled = false;
+    }
+  });
+
   document.getElementById('resumeUpload').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -797,17 +829,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (isTex)       text = await file.text();
       else if (isDocx) text = await extractDocxText(file);
       else             text = await extractPdfText(file);
-      statusEl.innerHTML = `${spinner}Generating candidate profile…`;
       const format    = isTex ? 'tex' : isDocx ? 'docx' : 'pdf';
       const truncated = text.slice(0, isTex ? 8000 : 4000);
       await saveLocalResumeData({ resumeText: truncated, resumeFormat: format, resumeFilename: file.name });
-      const profile = await generateCandidateProfile(truncated, settings.openrouterKey, settings.selectedModel || 'deepseek/deepseek-v4-flash');
-      document.getElementById('candidateProfileArea').value = profile;
-      await saveSyncSettings({ candidateProfile: profile });
       statusEl.innerHTML = '';
-      statusEl.textContent = `✓ Profile generated and saved (${format} format).`;
+      statusEl.textContent = `✓ File loaded (${format}). Click Generate Profile to continue.`;
       statusEl.style.color = 'var(--success)';
-      render();
+      document.getElementById('genProfileBtn').disabled = false;
     } catch (err) {
       statusEl.innerHTML = '';
       statusEl.textContent = `Error: ${err.message}`;
