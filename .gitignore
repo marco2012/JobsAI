@@ -11,3 +11,4 @@ optimizer/resumes/
 *.out
 node_modules/
 .texpadtmp/
+.jobs_cache/.claude/worktrees/
