@@ -480,8 +480,10 @@ function initScoreAll() {
       progressText.textContent = `Scoring job ${i + 1} of ${total}…`;
       progressFill.style.width = `${(i / total) * 100}%`;
 
+      console.log(`[score] ${i + 1}/${total} "${job.title}" @ "${job.company}"`);
       try {
         const score = await scoreJob(job, candidateProfile, apiKey, model);
+        console.log(`[score] → ${score}`);
         job.fit_score = score;
 
         // Persist: load fresh, update by URL match, save
