@@ -2,6 +2,7 @@
 
 let scoringAbort = false;
 let trackingPort = null;
+const activeGenerations = new Map(); // jobUrl → AbortController
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.get('trackedJobs', ({ trackedJobs }) => {
@@ -15,6 +16,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === 'generateResume') {
     handleGenerate(msg).catch(console.error);
     sendResponse({ queued: true });
+  }
+  if (msg.action === 'stopGeneration') {
+    activeGenerations.get(msg.jobUrl)?.abort();
+    sendResponse({});
   }
   if (msg.action === 'scoreAll') {
     handleScoreAll(msg).catch(console.error);
@@ -60,8 +65,14 @@ function saveJobs(jobs) {
 // ── Resume generation (survives popup close) ──────────────────────────────────
 
 async function handleGenerate({ jobUrl, job, resumeText, apiKey, model, format }) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort(new DOMException('Timed out after 5 min — try a faster model', 'TimeoutError'));
+  }, 300_000);
+  activeGenerations.set(jobUrl, controller);
+
   try {
-    const content = await fetchResume(job, resumeText, apiKey, model, format);
+    const content = await fetchResume(job, resumeText, apiKey, model, format, controller.signal);
     const { generatedResumes = {}, resumeGenerations = {} } =
       await chrome.storage.local.get(['generatedResumes', 'resumeGenerations']);
     generatedResumes[jobUrl] = content;
@@ -69,18 +80,26 @@ async function handleGenerate({ jobUrl, job, resumeText, apiKey, model, format }
     await chrome.storage.local.set({ generatedResumes, resumeGenerations });
     notify('Resume ready', `${job.title} @ ${job.company} — click the download icon`);
   } catch (err) {
-    const message = err.name === 'TimeoutError'
-      ? 'Timed out after 3 min — try a faster model'
-      : err.message;
+    if (err.name === 'AbortError') {
+      // User cancelled — clear pending state silently
+      const { resumeGenerations = {} } = await chrome.storage.local.get('resumeGenerations');
+      delete resumeGenerations[jobUrl];
+      await chrome.storage.local.set({ resumeGenerations });
+      return;
+    }
+    const message = err.name === 'TimeoutError' ? err.message : err.message;
     console.error(`[resume] Failed: ${message}`);
     const { resumeGenerations = {} } = await chrome.storage.local.get('resumeGenerations');
     resumeGenerations[jobUrl] = { status: 'error', error: message };
     await chrome.storage.local.set({ resumeGenerations });
     notify('Resume generation failed', message);
+  } finally {
+    clearTimeout(timeoutId);
+    activeGenerations.delete(jobUrl);
   }
 }
 
-async function fetchResume(job, resumeText, apiKey, model, format) {
+async function fetchResume(job, resumeText, apiKey, model, format, signal) {
   const isTex = format === 'tex';
   const formatRules = isTex
     ? `- Preserve ALL LaTeX commands, packages, document class, and preamble exactly as-is
@@ -99,7 +118,7 @@ async function fetchResume(job, resumeText, apiKey, model, format) {
   console.log(`[resume] Generating for model=${model} format=${format}`);
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
-    signal: AbortSignal.timeout(180_000),
+    signal,
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model,
