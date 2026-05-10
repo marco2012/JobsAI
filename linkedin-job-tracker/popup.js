@@ -1,5 +1,22 @@
-// ── In-session resume cache (url → generated text) ───────────────────────────
+// ── Resume cache (url → generated text), persisted in storage.local ──────────
 const generatedResumes = new Map();
+
+function loadGeneratedResumes() {
+  return new Promise(r => chrome.storage.local.get('generatedResumes', d => {
+    const obj = d.generatedResumes || {};
+    Object.entries(obj).forEach(([url, content]) => generatedResumes.set(url, content));
+    r();
+  }));
+}
+
+function saveGeneratedResume(url, content) {
+  generatedResumes.set(url, content);
+  return new Promise(r => chrome.storage.local.get('generatedResumes', d => {
+    const obj = d.generatedResumes || {};
+    obj[url] = content;
+    chrome.storage.local.set({ generatedResumes: obj }, r);
+  }));
+}
 
 // ── chrome.storage helpers ───────────────────────────────────────────────────
 
@@ -173,7 +190,7 @@ async function render(page) {
         if (!s.resumeText) throw new Error('Re-upload your resume PDF in Settings to enable this');
         console.log(`[resume] generating for "${job.title}" @ "${job.company}"`);
         const content = await generateTailoredResume(job, s.resumeText, s.openrouterKey, s.selectedModel || 'deepseek/deepseek-v4-flash');
-        generatedResumes.set(job.url, content);
+        await saveGeneratedResume(job.url, content);
         await render(); // shows download icon
       } catch (err) {
         console.error('[resume]', err.message);
@@ -642,6 +659,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   initSettingsToggle();
   initTrackAll();
   initScoreAll();
+  await loadGeneratedResumes();
   await render();
   await loadSettingsUI();
 
