@@ -1,20 +1,19 @@
-// ── Resume cache (url → generated text), persisted in storage.local ──────────
+// ── Resume cache + in-progress generation state ───────────────────────────────
 const generatedResumes = new Map();
+let resumeGenerations = {}; // { [url]: { status: 'pending'|'error', error?, startedAt } }
 
 function loadGeneratedResumes() {
-  return new Promise(r => chrome.storage.local.get('generatedResumes', d => {
+  return new Promise(r => chrome.storage.local.get(['generatedResumes', 'resumeGenerations'], d => {
     const obj = d.generatedResumes || {};
     Object.entries(obj).forEach(([url, content]) => generatedResumes.set(url, content));
+    // Drop stale pending entries (> 3 min — background worker was likely killed)
+    const gens = d.resumeGenerations || {};
+    const now = Date.now();
+    Object.keys(gens).forEach(url => {
+      if (gens[url].status === 'pending' && now - (gens[url].startedAt || 0) > 180000) delete gens[url];
+    });
+    resumeGenerations = gens;
     r();
-  }));
-}
-
-function saveGeneratedResume(url, content) {
-  generatedResumes.set(url, content);
-  return new Promise(r => chrome.storage.local.get('generatedResumes', d => {
-    const obj = d.generatedResumes || {};
-    obj[url] = content;
-    chrome.storage.local.set({ generatedResumes: obj }, r);
   }));
 }
 
@@ -131,20 +130,26 @@ async function render(page) {
 
     const canGen = !!(sync.candidateProfile && hasDesc);
     const hasResume = generatedResumes.has(job.url);
-    const genDisabled = !hasResume && !canGen;
-    const genTitle = hasResume ? 'Download tailored resume (PDF)'
-      : canGen ? 'Generate tailored resume'
-      : 'No description available';
-    const genIcon = hasResume
-      ? `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-           <polyline points="7 10 12 15 17 10"/>
-           <line x1="12" y1="15" x2="12" y2="3"/>
-         </svg>`
-      : `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-           <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-           <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-         </svg>`;
+    const genState = resumeGenerations[job.url];
+    const isGenerating = genState?.status === 'pending';
+    const genError = genState?.status === 'error' ? genState.error : null;
+
+    let genBtnClass = 'job-gen-btn';
+    let genBtnContent, genBtnTitle, genBtnDisabled;
+    if (isGenerating) {
+      genBtnContent = '<span class="spinner"></span>';
+      genBtnTitle = 'Generating…';
+      genBtnDisabled = true;
+    } else if (hasResume) {
+      genBtnClass += ' job-gen-btn--ready';
+      genBtnContent = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
+      genBtnTitle = 'Download tailored resume';
+      genBtnDisabled = false;
+    } else {
+      genBtnContent = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
+      genBtnTitle = genError ? `Last attempt failed: ${genError}` : canGen ? 'Generate tailored resume' : 'No description available';
+      genBtnDisabled = !canGen;
+    }
     return `
     <div class="job-item">
       <div class="job-score ${scoreClass}">${scoreLabel}</div>
@@ -157,7 +162,7 @@ async function render(page) {
           ${job.location ? `<span class="job-sep"></span><span class="job-location">${esc(job.location)}</span>` : ''}
         </div>
       </div>
-      <button class="job-gen-btn${hasResume ? ' job-gen-btn--ready' : ''}" data-url="${esc(job.url)}" title="${genTitle}" ${genDisabled ? 'disabled' : ''}>${genIcon}</button>
+      <button class="${genBtnClass}" data-url="${esc(job.url)}" title="${esc(genBtnTitle)}" ${genBtnDisabled ? 'disabled' : ''}>${genBtnContent}</button>
       <button class="job-remove" data-idx="${start + i}" title="Remove">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
@@ -188,25 +193,27 @@ async function render(page) {
         return;
       }
 
-      // Generate
-      const origHTML = btn.innerHTML;
-      btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span>';
-      try {
-        const [s, local] = await Promise.all([loadSyncSettings(), loadLocalResumeData()]);
-        if (!local.resumeText) throw new Error('Re-upload your resume in Settings to enable this');
-        const format = local.resumeFormat || 'pdf';
-        console.log(`[resume] generating (${format}) for "${job.title}" @ "${job.company}"`);
-        const content = await generateTailoredResume(job, local.resumeText, s.openrouterKey, s.selectedModel || 'deepseek/deepseek-v4-flash', format);
-        await saveGeneratedResume(job.url, content);
-        await render(); // shows download icon
-      } catch (err) {
-        console.error('[resume]', err.message);
-        btn.innerHTML = '!';
-        btn.title = err.message;
-        btn.style.color = 'var(--destructive)';
-        setTimeout(() => { btn.innerHTML = origHTML; btn.style.color = ''; btn.title = 'Generate tailored resume'; btn.disabled = false; }, 3000);
+      // Dispatch generation to background service worker
+      const [s, local] = await Promise.all([loadSyncSettings(), loadLocalResumeData()]);
+      if (!local.resumeText) {
+        btn.title = 'Re-upload your resume in Settings to enable this';
+        return;
       }
+      const format = local.resumeFormat || 'pdf';
+      // Optimistically mark as pending so spinner shows immediately
+      resumeGenerations[job.url] = { status: 'pending', startedAt: Date.now() };
+      const updatedGens = { ...resumeGenerations };
+      chrome.storage.local.set({ resumeGenerations: updatedGens });
+      chrome.runtime.sendMessage({
+        action: 'generateResume',
+        jobUrl: job.url,
+        job,
+        resumeText: local.resumeText,
+        apiKey: s.openrouterKey,
+        model: s.selectedModel || 'deepseek/deepseek-v4-flash',
+        format,
+      });
+      await render();
     });
   });
 
@@ -329,67 +336,6 @@ ${resumeText}`,
   let content = msg.content ?? msg.reasoning_content ?? msg.reasoning ?? '';
   if (!content.trim()) throw new Error('Model returned empty content');
   content = content.trim().replace(/^CANDIDATE_PROFILE[:\s]*/i, '');
-  return content.trim();
-}
-
-// ── Resume generation ────────────────────────────────────────────────────────
-
-async function generateTailoredResume(job, resumeText, apiKey, model, format = 'pdf') {
-  const isTex = format === 'tex';
-  const formatRules = isTex
-    ? `- Preserve ALL LaTeX commands, packages, document class, and preamble exactly as-is
-- Never escape # inside \\newcommand definitions — #1, #2, #3 are argument placeholders, not literal text
-- Keep the same \\begin{document} ... \\end{document} structure
-- Output ONLY the complete .tex file. Start with the document class line (e.g. \\documentclass[...])`
-    : `- Output the resume in Markdown format so it can be rendered as a formatted Word document:
-  - # Candidate Name (H1, one line)
-  - Contact info as a plain line (email | phone | LinkedIn)
-  - ## SECTION HEADINGS (H2) for Experience, Education, Skills, etc.
-  - ### Company | Role | Dates (H3) for each position
-  - - Bullet points for achievements (XYZ formula, metrics required)
-  - **bold** for company names, key metrics, and technologies
-  - Start directly with # Name`;
-
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model,
-      messages: [{
-        role: 'user',
-        content: `You are a professional resume writer${isTex ? ' specializing in LaTeX' : ''}. Tailor this resume to the job description using the XYZ formula.
-
-Rules:
-- XYZ formula: "Accomplished [X] as measured by [Y] by doing [Z]"
-- Replace weak verbs (helped, assisted, worked on, responsible for) with power verbs (architected, drove, scaled, engineered, launched, owned, spearheaded)
-- Every bullet must have a quantifiable metric (%, $, scale, time saved, users impacted)
-- Reorder bullets to highlight skills matching THIS job first
-- Naturally incorporate the job's keywords into bullet descriptions
-- Cut anything not relevant to this specific role
-- After drafting, review and add any key job requirements that are missing
-${formatRules}
-
-ORIGINAL RESUME:
-${resumeText}
-
-JOB DESCRIPTION:
-${job.description || ''}`,
-      }],
-      max_tokens: 2000,
-    }),
-  });
-
-  if (response.status === 401) throw new Error('Invalid API key (401)');
-  if (response.status === 429) throw new Error('Rate limited — try again later');
-  if (!response.ok) throw new Error(`OpenRouter error ${response.status}`);
-
-  const data = await response.json();
-  const choice = data.choices?.[0];
-  console.log('[resume] finish_reason:', choice?.finish_reason);
-  if (!data.choices?.length) throw new Error('No response from model');
-  const msg = choice.message;
-  const content = msg.content ?? msg.reasoning_content ?? msg.reasoning ?? '';
-  if (!content.trim()) throw new Error('Model returned empty content');
   return content.trim();
 }
 
@@ -761,6 +707,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadGeneratedResumes();
   await render();
   await loadSettingsUI();
+
+  // Re-render when background updates generation state
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    if (changes.generatedResumes) {
+      const obj = changes.generatedResumes.newValue || {};
+      Object.entries(obj).forEach(([url, content]) => generatedResumes.set(url, content));
+    }
+    if (changes.resumeGenerations) {
+      resumeGenerations = changes.resumeGenerations.newValue || {};
+    }
+    if (changes.generatedResumes || changes.resumeGenerations) render();
+  });
 
   document.getElementById('exportBtn').addEventListener('click', exportXlsx);
   document.getElementById('clearBtn').addEventListener('click', async () => {
