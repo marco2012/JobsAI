@@ -33,7 +33,13 @@ function saveSettings(s) {
   return new Promise(r => chrome.storage.local.set({ settings: s }, r));
 }
 function loadSyncSettings() {
-  return new Promise(r => chrome.storage.sync.get(['openrouterKey', 'selectedModel', 'candidateProfile', 'resumeText', 'resumeFormat'], d => r(d)));
+  return new Promise(r => chrome.storage.sync.get(['openrouterKey', 'selectedModel', 'candidateProfile'], d => r(d)));
+}
+function loadLocalResumeData() {
+  return new Promise(r => chrome.storage.local.get(['resumeText', 'resumeFormat', 'resumeFilename'], d => r(d)));
+}
+function saveLocalResumeData(obj) {
+  return new Promise(r => chrome.storage.local.set(obj, r));
 }
 function saveSyncSettings(obj) {
   return new Promise(r => chrome.storage.sync.set(obj, r));
@@ -177,8 +183,8 @@ async function render(page) {
 
       // Already generated — download immediately
       if (generatedResumes.has(job.url)) {
-        const s = await loadSyncSettings();
-        downloadResume(generatedResumes.get(job.url), job, s.resumeFormat || 'pdf');
+        const local = await loadLocalResumeData();
+        downloadResume(generatedResumes.get(job.url), job, local.resumeFormat || 'pdf');
         return;
       }
 
@@ -187,11 +193,11 @@ async function render(page) {
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner"></span>';
       try {
-        const s = await loadSyncSettings();
-        if (!s.resumeText) throw new Error('Re-upload your resume in Settings to enable this');
-        const format = s.resumeFormat || 'pdf';
+        const [s, local] = await Promise.all([loadSyncSettings(), loadLocalResumeData()]);
+        if (!local.resumeText) throw new Error('Re-upload your resume in Settings to enable this');
+        const format = local.resumeFormat || 'pdf';
         console.log(`[resume] generating (${format}) for "${job.title}" @ "${job.company}"`);
-        const content = await generateTailoredResume(job, s.resumeText, s.openrouterKey, s.selectedModel || 'deepseek/deepseek-v4-flash', format);
+        const content = await generateTailoredResume(job, local.resumeText, s.openrouterKey, s.selectedModel || 'deepseek/deepseek-v4-flash', format);
         await saveGeneratedResume(job.url, content);
         await render(); // shows download icon
       } catch (err) {
@@ -465,10 +471,13 @@ async function downloadResume(content, job, format) {
 // ── Settings ─────────────────────────────────────────────────────────────────
 
 async function loadSettingsUI() {
-  const sync = await loadSyncSettings();
+  const [sync, local] = await Promise.all([loadSyncSettings(), loadLocalResumeData()]);
   document.getElementById('openrouterKey').value = sync.openrouterKey || '';
   document.getElementById('modelSelect').value = sync.selectedModel || 'deepseek/deepseek-v4-flash';
   document.getElementById('candidateProfileArea').value = sync.candidateProfile || '';
+  if (local.resumeFilename) {
+    document.getElementById('fileInputText').textContent = local.resumeFilename;
+  }
 }
 
 async function saveSettingsUI() {
@@ -791,7 +800,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       statusEl.innerHTML = `${spinner}Generating candidate profile…`;
       const format    = isTex ? 'tex' : isDocx ? 'docx' : 'pdf';
       const truncated = text.slice(0, isTex ? 8000 : 4000);
-      await saveSyncSettings({ resumeText: truncated, resumeFormat: format });
+      await saveLocalResumeData({ resumeText: truncated, resumeFormat: format, resumeFilename: file.name });
       const profile = await generateCandidateProfile(truncated, settings.openrouterKey, settings.selectedModel || 'deepseek/deepseek-v4-flash');
       document.getElementById('candidateProfileArea').value = profile;
       await saveSyncSettings({ candidateProfile: profile });
