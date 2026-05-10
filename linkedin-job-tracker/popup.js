@@ -50,6 +50,7 @@ async function render(page) {
 
   subtitle.textContent = `${jobs.length} job${jobs.length !== 1 ? 's' : ''} tracked`;
   exportBtn.disabled   = jobs.length === 0;
+  document.getElementById('scoreAllBtn').disabled = jobs.length === 0;
 
   if (jobs.length === 0) {
     list.innerHTML = `
@@ -86,6 +87,19 @@ async function render(page) {
     const descBadge = hasDesc
       ? `<span class="desc-ok" title="Description saved">✓</span>`
       : `<span class="desc-missing" title="No description">–</span>`;
+
+    let scoreBadge;
+    const score = job.fit_score;
+    if (score == null || score === undefined) {
+      scoreBadge = `<span class="score-badge score-grey">–</span>`;
+    } else if (score >= 75) {
+      scoreBadge = `<span class="score-badge score-green">${score}</span>`;
+    } else if (score >= 50) {
+      scoreBadge = `<span class="score-badge score-yellow">${score}</span>`;
+    } else {
+      scoreBadge = `<span class="score-badge score-red">${score}</span>`;
+    }
+
     return `
     <div class="job-item">
       <div class="job-info">
@@ -99,6 +113,7 @@ async function render(page) {
           <span class="job-date">${fmt(job.dateAdded)}</span>
         </div>
         ${chips ? `<div class="job-chips">${chips}</div>` : ''}
+        ${scoreBadge}
       </div>
       <button class="job-remove" data-idx="${start + i}" title="Remove">✕</button>
     </div>`;
@@ -337,6 +352,138 @@ function initTrackAll() {
   });
 }
 
+// ── Score job ────────────────────────────────────────────────────────────────
+
+async function scoreJob(job, candidateProfile, apiKey, model) {
+  const prompt = `You are a job-fit evaluator. Score how well this candidate fits this job.
+
+CANDIDATE PROFILE:
+${candidateProfile}
+
+JOB DESCRIPTION:
+${job.description || 'No description available.'}
+
+Respond with ONLY a single integer between 1 and 100.
+Score based on: skills match (40%), experience alignment (30%), role type fit (20%), domain relevance (10%).
+No explanation. No punctuation. Just the number.`;
+
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 10,
+    }),
+  });
+
+  if (response.status === 401) throw new Error('Invalid API key (401)');
+  if (response.status === 429) throw new Error('Rate limited — try again later');
+  if (!response.ok) throw new Error(`OpenRouter error ${response.status}`);
+
+  const data = await response.json();
+  if (!data.choices?.length) return null;
+
+  const result = parseInt(data.choices[0].message.content.trim(), 10);
+  if (isNaN(result) || result < 1 || result > 100) return null;
+  return result;
+}
+
+// ── Score All Jobs ────────────────────────────────────────────────────────────
+
+let abortScoring = false;
+
+function initScoreAll() {
+  const scoreAllBtn = document.getElementById('scoreAllBtn');
+  const stopBtn     = document.getElementById('stopBtn');
+  const progressText = document.getElementById('progressText');
+  const progressFill = document.getElementById('progressFill');
+
+  stopBtn.addEventListener('click', () => {
+    abortScoring = true;
+  });
+
+  scoreAllBtn.addEventListener('click', async () => {
+    const sync = await loadSyncSettings();
+
+    if (!sync.candidateProfile || !sync.candidateProfile.trim()) {
+      setProgressVisible(true);
+      progressText.textContent = 'Please upload your resume in Settings first.';
+      setTimeout(() => setProgressVisible(false), 3000);
+      return;
+    }
+
+    if (!sync.openrouterKey || !sync.openrouterKey.trim()) {
+      setProgressVisible(true);
+      progressText.textContent = 'Please set your OpenRouter API key in Settings.';
+      setTimeout(() => setProgressVisible(false), 3000);
+      return;
+    }
+
+    const apiKey   = sync.openrouterKey;
+    const model    = sync.selectedModel || 'deepseek/deepseek-r1-0528-qwen3-8b:free';
+    const candidateProfile = sync.candidateProfile;
+
+    const allJobs   = await loadJobs();
+    const unscored  = allJobs.filter(j => j.fit_score == null || j.fit_score === undefined);
+
+    if (unscored.length === 0) {
+      setProgressVisible(true);
+      progressText.textContent = 'All jobs already scored.';
+      setTimeout(() => setProgressVisible(false), 3000);
+      return;
+    }
+
+    abortScoring = false;
+    setProgressVisible(true);
+    scoreAllBtn.disabled = true;
+    progressFill.style.width = '0%';
+    progressText.textContent = 'Starting scoring…';
+
+    const total = unscored.length;
+
+    for (let i = 0; i < total; i++) {
+      if (abortScoring) break;
+
+      const job = unscored[i];
+      progressText.textContent = `Scoring job ${i + 1} of ${total}…`;
+      progressFill.style.width = `${(i / total) * 100}%`;
+
+      try {
+        const score = await scoreJob(job, candidateProfile, apiKey, model);
+        job.fit_score = score;
+
+        // Persist: load fresh, update by URL match, save
+        const stored = await loadJobs();
+        const idx = stored.findIndex(j => j.url === job.url);
+        if (idx !== -1) {
+          stored[idx].fit_score = score;
+          await saveJobs(stored);
+        }
+      } catch (err) {
+        progressText.textContent = err.message;
+        setTimeout(() => setProgressVisible(false), 3000);
+        scoreAllBtn.disabled = false;
+        render();
+        return;
+      }
+
+      render();
+    }
+
+    progressFill.style.width = '100%';
+    progressText.textContent = abortScoring ? 'Scoring stopped.' : 'Scoring complete.';
+    setTimeout(() => {
+      setProgressVisible(false);
+      render();
+    }, 3000);
+    scoreAllBtn.disabled = false;
+  });
+}
+
 // ── Init ─────────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -344,6 +491,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   initSettingsToggle();
   initTrackAll();
+  initScoreAll();
   await render();
   await loadSettingsUI();
 
