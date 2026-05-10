@@ -15,6 +15,11 @@ curl -fsSL "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.mi
 echo "Done. File size: $(du -sh pdf.worker.min.js | cut -f1)"
 
 echo ""
+echo "Downloading JSZip (jszip.min.js)..."
+curl -fsSL "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" -o jszip.min.js
+echo "Done. File size: $(du -sh jszip.min.js | cut -f1)"
+
+echo ""
 echo "Setup complete. Load the extension in Chrome:"
 echo "  1. Open chrome://extensions"
 echo "  2. Enable Developer mode (top-right toggle)"

@@ -33,7 +33,7 @@ function saveSettings(s) {
   return new Promise(r => chrome.storage.local.set({ settings: s }, r));
 }
 function loadSyncSettings() {
-  return new Promise(r => chrome.storage.sync.get(['openrouterKey', 'selectedModel', 'candidateProfile', 'resumeText'], d => r(d)));
+  return new Promise(r => chrome.storage.sync.get(['openrouterKey', 'selectedModel', 'candidateProfile', 'resumeText', 'resumeFormat'], d => r(d)));
 }
 function saveSyncSettings(obj) {
   return new Promise(r => chrome.storage.sync.set(obj, r));
@@ -177,7 +177,8 @@ async function render(page) {
 
       // Already generated — download immediately
       if (generatedResumes.has(job.url)) {
-        downloadResumePdf(generatedResumes.get(job.url), job);
+        const s = await loadSyncSettings();
+        downloadResume(generatedResumes.get(job.url), job, s.resumeFormat || 'pdf');
         return;
       }
 
@@ -187,9 +188,10 @@ async function render(page) {
       btn.innerHTML = '<span class="spinner"></span>';
       try {
         const s = await loadSyncSettings();
-        if (!s.resumeText) throw new Error('Re-upload your resume PDF in Settings to enable this');
-        console.log(`[resume] generating for "${job.title}" @ "${job.company}"`);
-        const content = await generateTailoredResume(job, s.resumeText, s.openrouterKey, s.selectedModel || 'deepseek/deepseek-v4-flash');
+        if (!s.resumeText) throw new Error('Re-upload your resume in Settings to enable this');
+        const format = s.resumeFormat || 'pdf';
+        console.log(`[resume] generating (${format}) for "${job.title}" @ "${job.company}"`);
+        const content = await generateTailoredResume(job, s.resumeText, s.openrouterKey, s.selectedModel || 'deepseek/deepseek-v4-flash', format);
         await saveGeneratedResume(job.url, content);
         await render(); // shows download icon
       } catch (err) {
@@ -320,7 +322,15 @@ ${resumeText}`,
 
 // ── Resume generation ────────────────────────────────────────────────────────
 
-async function generateTailoredResume(job, resumeText, apiKey, model) {
+async function generateTailoredResume(job, resumeText, apiKey, model, format = 'pdf') {
+  const isTex = format === 'tex';
+  const formatRules = isTex
+    ? `- Preserve ALL LaTeX commands, packages, document class, and preamble exactly as-is
+- Never escape # inside \\newcommand definitions — #1, #2, #3 are argument placeholders, not literal text
+- Keep the same \\begin{document} ... \\end{document} structure
+- Output ONLY the complete .tex file. Start with the document class line (e.g. \\documentclass[...])`
+    : `- Output the complete tailored resume as plain text. Start directly with the resume content.`;
+
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
@@ -328,7 +338,7 @@ async function generateTailoredResume(job, resumeText, apiKey, model) {
       model,
       messages: [{
         role: 'user',
-        content: `You are a professional resume writer. Tailor this resume to the job description using the XYZ formula.
+        content: `You are a professional resume writer${isTex ? ' specializing in LaTeX' : ''}. Tailor this resume to the job description using the XYZ formula.
 
 Rules:
 - XYZ formula: "Accomplished [X] as measured by [Y] by doing [Z]"
@@ -338,15 +348,13 @@ Rules:
 - Naturally incorporate the job's keywords into bullet descriptions
 - Cut anything not relevant to this specific role
 - After drafting, review and add any key job requirements that are missing
-- Keep the exact same sections and structure as the original
+${formatRules}
 
 ORIGINAL RESUME:
 ${resumeText}
 
 JOB DESCRIPTION:
-${job.description || ''}
-
-Output the complete tailored resume as plain text. Start directly with the resume content.`,
+${job.description || ''}`,
       }],
       max_tokens: 2000,
     }),
@@ -366,11 +374,36 @@ Output the complete tailored resume as plain text. Start directly with the resum
   return content.trim();
 }
 
-function downloadResumePdf(content, job) {
-  const key = 'resume_print_' + Date.now();
-  localStorage.setItem(key, JSON.stringify({ content, title: job.title, company: job.company }));
-  const url = chrome.runtime.getURL('resume-print.html') + '?key=' + encodeURIComponent(key);
-  chrome.tabs.create({ url });
+function buildDocx(text) {
+  const x = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const paras = text.split('\n').map(line =>
+    line.trim()
+      ? `<w:p><w:pPr><w:spacing w:after="0" w:line="276" w:lineRule="auto"/></w:pPr><w:r><w:t xml:space="preserve">${x(line)}</w:t></w:r></w:p>`
+      : `<w:p><w:pPr><w:spacing w:after="0"/></w:pPr></w:p>`
+  ).join('');
+  const ct = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`;
+  const rels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
+  const doc = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${paras}<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>`;
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml', ct);
+  zip.folder('_rels').file('.rels', rels);
+  zip.file('word/document.xml', doc);
+  return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+}
+
+async function downloadResume(content, job, format) {
+  const san = s => (s || '').replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_').slice(0, 40);
+  const base = `resume_${san(job.company)}_${san(job.title)}`;
+  let blob, filename;
+  if (format === 'tex') {
+    blob = new Blob([content], { type: 'text/plain' });
+    filename = base + '.tex';
+  } else {
+    blob = await buildDocx(content);
+    filename = base + '.docx';
+  }
+  const url = URL.createObjectURL(blob);
+  chrome.downloads.download({ url, filename, saveAs: false }, () => URL.revokeObjectURL(url));
 }
 
 // ── Settings ─────────────────────────────────────────────────────────────────
@@ -676,8 +709,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!file) return;
     document.getElementById('fileInputText').textContent = file.name;
     const statusEl = document.getElementById('uploadStatus');
-    if (!file.name.toLowerCase().endsWith('.pdf')) {
-      statusEl.textContent = 'Please upload a PDF file.';
+    const isTex = file.name.toLowerCase().endsWith('.tex');
+    const isPdf = file.name.toLowerCase().endsWith('.pdf');
+    if (!isTex && !isPdf) {
+      statusEl.textContent = 'Please upload a PDF or .tex file.';
       statusEl.style.color = 'var(--destructive)';
       return;
     }
@@ -689,17 +724,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     const spinner = '<span class="spinner"></span>';
     statusEl.style.color = 'var(--muted-fg)';
-    statusEl.innerHTML = `${spinner}Extracting PDF text…`;
+    statusEl.innerHTML = `${spinner}${isTex ? 'Reading .tex file…' : 'Extracting PDF text…'}`;
     try {
-      const text = await extractPdfText(file);
+      let text;
+      if (isTex) {
+        text = await file.text();
+      } else {
+        text = await extractPdfText(file);
+      }
       statusEl.innerHTML = `${spinner}Generating candidate profile…`;
-      const truncated = text.slice(0, 4000);
-      await saveSyncSettings({ resumeText: truncated });
+      const truncated = text.slice(0, isTex ? 8000 : 4000);
+      await saveSyncSettings({ resumeText: truncated, resumeFormat: isTex ? 'tex' : 'pdf' });
       const profile = await generateCandidateProfile(truncated, settings.openrouterKey, settings.selectedModel || 'deepseek/deepseek-v4-flash');
       document.getElementById('candidateProfileArea').value = profile;
       await saveSyncSettings({ candidateProfile: profile });
       statusEl.innerHTML = '';
-      statusEl.textContent = '✓ Profile generated and saved.';
+      statusEl.textContent = `✓ Profile generated and saved (${isTex ? '.tex' : 'PDF'} format).`;
       statusEl.style.color = 'var(--success)';
       render();
     } catch (err) {

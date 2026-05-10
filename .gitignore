@@ -16,3 +16,4 @@ node_modules/
 .claude/worktrees/
 linkedin-job-tracker/pdf.min.js
 linkedin-job-tracker/pdf.worker.min.js
+linkedin-job-tracker/jszip.min.js

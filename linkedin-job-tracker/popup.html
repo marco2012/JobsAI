@@ -622,7 +622,7 @@
 
       <div class="field">
         <label class="field-label">Resume PDF</label>
-        <p class="field-hint">Extracts text and generates your candidate profile via the selected model.</p>
+        <p class="field-hint">Upload your resume PDF or .tex file. Tailored resumes will be generated in the same format.</p>
         <label class="file-input-btn" for="resumeUpload">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -631,7 +631,7 @@
           </svg>
           <span id="fileInputText">Choose PDF file…</span>
         </label>
-        <input type="file" accept=".pdf" id="resumeUpload" style="position:absolute;opacity:0;width:0;height:0;">
+        <input type="file" accept=".pdf,.tex" id="resumeUpload" style="position:absolute;opacity:0;width:0;height:0;">
         <p class="upload-status" id="uploadStatus"></p>
       </div>
 
@@ -652,6 +652,7 @@
 
   <script src="pdf.min.js"></script>
   <script src="xlsx.mini.min.js"></script>
+  <script src="jszip.min.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
