@@ -454,7 +454,8 @@ function initScoreAll() {
     const candidateProfile = sync.candidateProfile;
 
     const allJobs   = await loadJobs();
-    const unscored  = allJobs.filter(j => j.fit_score == null);
+    const unscored  = allJobs.filter(j => typeof j.fit_score !== 'number');
+    console.log(`[score] ${allJobs.length - unscored.length} already scored, ${unscored.length} to process`);
 
     if (unscored.length === 0) {
       setProgressVisible(true);
@@ -486,12 +487,14 @@ function initScoreAll() {
         console.log(`[score] → ${score}`);
         job.fit_score = score;
 
-        // Persist: load fresh, update by URL match, save
-        const stored = await loadJobs();
-        const idx = stored.findIndex(j => j.url === job.url);
-        if (idx !== -1) {
-          stored[idx].fit_score = score;
-          await saveJobs(stored);
+        // Persist only when we have a real score
+        if (typeof score === 'number') {
+          const stored = await loadJobs();
+          const idx = stored.findIndex(j => j.url === job.url);
+          if (idx !== -1) {
+            stored[idx].fit_score = score;
+            await saveJobs(stored);
+          }
         }
       } catch (err) {
         // 401 = invalid API key — abort immediately, no point retrying
