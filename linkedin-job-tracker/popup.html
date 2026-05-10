@@ -273,6 +273,24 @@
       white-space: nowrap;
     }
 
+    .job-gen-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: transparent;
+      color: var(--muted-fg);
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+      font-size: 12px;
+    }
+    .job-gen-btn:hover:not(:disabled) { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
+    .job-gen-btn:disabled { opacity: 0.3; cursor: default; }
+
     .job-remove {
       background: none;
       border: none;

@@ -13,7 +13,7 @@ function saveSettings(s) {
   return new Promise(r => chrome.storage.local.set({ settings: s }, r));
 }
 function loadSyncSettings() {
-  return new Promise(r => chrome.storage.sync.get(['openrouterKey', 'selectedModel', 'candidateProfile'], d => r(d)));
+  return new Promise(r => chrome.storage.sync.get(['openrouterKey', 'selectedModel', 'candidateProfile', 'resumeText'], d => r(d)));
 }
 function saveSyncSettings(obj) {
   return new Promise(r => chrome.storage.sync.set(obj, r));
@@ -106,8 +106,10 @@ async function render(page) {
       : 'score-red';
     const scoreLabel = score != null ? score : '–';
 
+    const canGen = !!(sync.resumeText && hasDesc);
     return `
     <div class="job-item">
+      <div class="job-score ${scoreClass}">${scoreLabel}</div>
       <div class="job-info">
         <div class="job-title">
           ${descBadge}
@@ -117,9 +119,13 @@ async function render(page) {
           <span class="job-company">${esc(job.company)}</span>
           ${job.location ? `<span class="job-sep"></span><span class="job-location">${esc(job.location)}</span>` : ''}
         </div>
-        ${chips ? `<div class="job-chips">${chips}</div>` : ''}
       </div>
-      <div class="job-score ${scoreClass}">${scoreLabel}</div>
+      <button class="job-gen-btn" data-url="${esc(job.url)}" title="${canGen ? 'Generate tailored resume' : 'No description available'}" ${canGen ? '' : 'disabled'}>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+        </svg>
+      </button>
       <button class="job-remove" data-idx="${start + i}" title="Remove">✕</button>
     </div>`;
   }).join('');
@@ -130,6 +136,31 @@ async function render(page) {
       jobs.splice(+btn.dataset.idx, 1);
       await saveJobs(jobs);
       render();
+    });
+  });
+
+  list.querySelectorAll('.job-gen-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const job = pageJobs.find(j => j.url === btn.dataset.url);
+      if (!job) return;
+      const origHTML = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>';
+      try {
+        const s = await loadSyncSettings();
+        console.log(`[resume] generating for "${job.title}" @ "${job.company}"`);
+        const content = await generateTailoredResume(job, s.resumeText, s.openrouterKey, s.selectedModel || 'deepseek/deepseek-v4-flash');
+        downloadResume(content, job);
+        btn.innerHTML = '✓';
+        btn.style.color = 'var(--success)';
+        setTimeout(() => { btn.innerHTML = origHTML; btn.style.color = ''; btn.disabled = false; }, 2000);
+      } catch (err) {
+        console.error('[resume]', err.message);
+        btn.innerHTML = '!';
+        btn.title = err.message;
+        btn.style.color = 'var(--destructive)';
+        setTimeout(() => { btn.innerHTML = origHTML; btn.style.color = ''; btn.title = 'Generate tailored resume'; btn.disabled = false; }, 3000);
+      }
     });
   });
 
@@ -247,6 +278,62 @@ ${resumeText}`,
   const content = msg.content ?? msg.reasoning_content ?? msg.reasoning ?? '';
   if (!content.trim()) throw new Error('Model returned empty content');
   return content.trim();
+}
+
+// ── Resume generation ────────────────────────────────────────────────────────
+
+async function generateTailoredResume(job, resumeText, apiKey, model) {
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      messages: [{
+        role: 'user',
+        content: `You are a professional resume writer. Tailor this resume to the job description using the XYZ formula.
+
+Rules:
+- XYZ formula: "Accomplished [X] as measured by [Y] by doing [Z]"
+- Replace weak verbs (helped, assisted, worked on, responsible for) with power verbs (architected, drove, scaled, engineered, launched, owned, spearheaded)
+- Every bullet must have a quantifiable metric (%, $, scale, time saved, users impacted)
+- Reorder bullets to highlight skills matching THIS job first
+- Naturally incorporate the job's keywords into bullet descriptions
+- Cut anything not relevant to this specific role
+- After drafting, review and add any key job requirements that are missing
+- Keep the exact same sections and structure as the original
+
+ORIGINAL RESUME:
+${resumeText}
+
+JOB DESCRIPTION:
+${job.description || ''}
+
+Output the complete tailored resume as plain text. Start directly with the resume content.`,
+      }],
+      max_tokens: 2000,
+    }),
+  });
+
+  if (response.status === 401) throw new Error('Invalid API key (401)');
+  if (response.status === 429) throw new Error('Rate limited — try again later');
+  if (!response.ok) throw new Error(`OpenRouter error ${response.status}`);
+
+  const data = await response.json();
+  const choice = data.choices?.[0];
+  console.log('[resume] finish_reason:', choice?.finish_reason);
+  if (!data.choices?.length) throw new Error('No response from model');
+  const msg = choice.message;
+  const content = msg.content ?? msg.reasoning_content ?? msg.reasoning ?? '';
+  if (!content.trim()) throw new Error('Model returned empty content');
+  return content.trim();
+}
+
+function downloadResume(content, job) {
+  const sanitize = s => (s || '').replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_').slice(0, 40);
+  const filename = `resume_${sanitize(job.company)}_${sanitize(job.title)}.txt`;
+  const blob = new Blob([content], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  chrome.downloads.download({ url, filename, saveAs: false }, () => URL.revokeObjectURL(url));
 }
 
 // ── Settings ─────────────────────────────────────────────────────────────────
@@ -569,6 +656,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const text = await extractPdfText(file);
       statusEl.innerHTML = `${spinner}Generating candidate profile…`;
       const truncated = text.slice(0, 4000);
+      await saveSyncSettings({ resumeText: truncated });
       const profile = await generateCandidateProfile(truncated, settings.openrouterKey, settings.selectedModel || 'deepseek/deepseek-v4-flash');
       document.getElementById('candidateProfileArea').value = profile;
       await saveSyncSettings({ candidateProfile: profile });
