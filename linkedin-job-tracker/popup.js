@@ -116,8 +116,6 @@ async function render(page) {
         </div>
         <div class="job-meta">
           <span class="job-company">${esc(job.company)}</span>
-          <span class="job-sep"></span>
-          <span class="job-date">${fmt(job.dateAdded)}</span>
         </div>
         ${chips ? `<div class="job-chips">${chips}</div>` : ''}
       </div>
