@@ -75,10 +75,17 @@ async function render(page) {
   list.innerHTML = pageJobs.map((job, i) => {
     const chips = [job.location, job.postedDate, job.applicants].filter(Boolean)
       .map(c => `<span class="chip">${esc(c)}</span>`).join('');
+    const hasDesc = job.description && job.description.trim().length > 30;
+    const descBadge = hasDesc
+      ? `<span class="desc-ok" title="Description saved">✓</span>`
+      : `<span class="desc-missing" title="No description">–</span>`;
     return `
     <div class="job-item">
       <div class="job-info">
-        <div class="job-title" title="${esc(job.title)}">${esc(job.title)}</div>
+        <div class="job-title">
+          ${descBadge}
+          <span class="job-title-text" title="${esc(job.title)}">${esc(job.title)}</span>
+        </div>
         <div class="job-meta">
           <span class="job-company">${esc(job.company)}</span>
           <span class="job-sep"></span>
@@ -113,10 +120,11 @@ async function buildXlsxBuffer() {
     'Location':    j.location    || '',
     'Posted':      j.postedDate  || '',
     'Applicants':  j.applicants  || '',
+    'Saved':       j.dateAdded ? new Date(j.dateAdded).toISOString().slice(0, 19).replace('T', ' ') : '',
     'Job Link':    j.url         || '',
     'Description': j.description || '',
   }));
-  const ws = XLSX.utils.json_to_sheet(rows, { header: ['Role', 'Company', 'Location', 'Posted', 'Applicants', 'Job Link', 'Description'] });
+  const ws = XLSX.utils.json_to_sheet(rows, { header: ['Role', 'Company', 'Location', 'Posted', 'Applicants', 'Saved', 'Job Link', 'Description'] });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Jobs');
   return XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
@@ -171,10 +179,99 @@ function initSettingsToggle() {
   });
 }
 
+// ── Track All Visible ────────────────────────────────────────────────────────
+
+function setProgressVisible(on) {
+  document.getElementById('progressSection').style.display = on ? '' : 'none';
+}
+
+function updateProgress(done, total, skipped, failed) {
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  document.getElementById('progressFill').style.width = `${pct}%`;
+  const newCount = done - skipped - failed;
+  const parts = [`${newCount} tracked`];
+  if (skipped) parts.push(`${skipped} already tracked`);
+  if (failed)  parts.push(`${failed} failed`);
+  document.getElementById('progressText').textContent =
+    `${done} / ${total} — ${parts.join(', ')}`;
+}
+
+function initTrackAll() {
+  const btn     = document.getElementById('trackAllBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  let activePort = null;
+
+  // Enable button only when on a LinkedIn jobs page
+  chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+    const url = tabs[0]?.url || '';
+    const onJobsPage = /linkedin\.com\/jobs\/(search|collections)/.test(url);
+    btn.disabled = !onJobsPage;
+    if (!onJobsPage) btn.title = 'Open a LinkedIn jobs search page first';
+  });
+
+  stopBtn.addEventListener('click', () => {
+    if (activePort) {
+      activePort.postMessage({ action: 'stop' });
+      stopBtn.disabled = true;
+      stopBtn.textContent = 'Stopping…';
+    }
+  });
+
+  btn.addEventListener('click', () => {
+    btn.disabled = true;
+    stopBtn.disabled = false;
+    stopBtn.textContent = 'Stop';
+    setProgressVisible(true);
+    document.getElementById('progressFill').style.width = '0%';
+    document.getElementById('progressText').textContent = 'Starting…';
+
+    chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+      const port = chrome.tabs.connect(tabs[0].id, { name: 'ljt-track-all' });
+      activePort = port;
+
+      function finish() {
+        btn.disabled = false;
+        stopBtn.disabled = true;
+        activePort = null;
+        render();
+      }
+
+      port.onMessage.addListener(msg => {
+        if (msg.type === 'progress') {
+          updateProgress(msg.done, msg.total, msg.skipped, msg.failed);
+          render();
+        } else if (msg.type === 'done') {
+          updateProgress(msg.total, msg.total, msg.skipped, msg.failed);
+          document.getElementById('progressText').textContent =
+            `Done! ${msg.done} new, ${msg.skipped} already tracked${msg.failed ? `, ${msg.failed} failed` : ''}`;
+          finish();
+        } else if (msg.type === 'stopped') {
+          document.getElementById('progressFill').style.width = '100%';
+          document.getElementById('progressText').textContent =
+            `Stopped — ${msg.done} new, ${msg.skipped} already tracked${msg.failed ? `, ${msg.failed} failed` : ''}`;
+          finish();
+        } else if (msg.type === 'error') {
+          document.getElementById('progressText').textContent = `Error: ${msg.message}`;
+          finish();
+        }
+      });
+
+      port.onDisconnect.addListener(() => {
+        activePort = null;
+        btn.disabled = false;
+        stopBtn.disabled = true;
+      });
+
+      port.postMessage({ action: 'trackAllVisible' });
+    });
+  });
+}
+
 // ── Init ─────────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', async () => {
   initSettingsToggle();
+  initTrackAll();
   await render();
   await loadSettingsUI();
 

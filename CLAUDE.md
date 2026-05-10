@@ -1,3 +1,10 @@
+# OpenWolf
+
+@.wolf/OPENWOLF.md
+
+This project uses OpenWolf for context management. Read and follow .wolf/OPENWOLF.md every session. Check .wolf/cerebrum.md before generating code. Check .wolf/anatomy.md before reading files.
+
+
 # Job Application Optimizer — Agent Instructions
 
 ## On Session Start
@@ -10,16 +17,16 @@ When a new conversation begins, greet the user with this message (adapt naturall
 
 I help you tailor your resume to every LinkedIn job you saved. Here's what I do:
 
-1. **Read** — I load your job list from `jobs.xlsx` (exported from the LinkedIn Job Tracker Chrome extension)
+1. **Read** — I load your job list from `optimizer/jobs.xlsx` (exported from the LinkedIn Job Tracker Chrome extension)
 2. **Score** — I score every job against your resume (0–100) and explain the fit
 3. **Tailor** — For strong matches (score ≥ 65), I generate a customized PDF resume optimized for that specific role
 
 **To get started, you'll need:**
-- `resume.tex` or `resume.docx` — your base resume (place it in this folder)
-- `jobs.xlsx` — your job list exported from the LinkedIn Job Tracker Chrome extension
+- `optimizer/resume.tex` or `optimizer/resume.docx` — your base resume
+- `optimizer/jobs.xlsx` — your job list exported from the LinkedIn Job Tracker Chrome extension
 
-**Don't have `jobs.xlsx` yet?**
-Load the **LinkedIn Job Tracker** Chrome extension (`linkedin-job-tracker/` folder in this repo), browse LinkedIn jobs, click **+ Track** on each job you want, then click **Export jobs.xlsx** in the extension popup and drop the file here.
+**Don't have `optimizer/jobs.xlsx` yet?**
+Load the **LinkedIn Job Tracker** Chrome extension (`linkedin-job-tracker/` folder in this repo), browse LinkedIn jobs, click **+ Track** on each job you want, then click **Export jobs.xlsx** in the extension popup and place it in `optimizer/`.
 
 **Ready to run?** Just say **"start"** and I'll run the preflight checks and generate your resumes.
 
@@ -32,11 +39,11 @@ Score job postings against your resume and generate a tailored PDF resume for ev
 ## How It Works
 
 ```
-jobs.xlsx  →  (Claude reads descriptions)  →  score + tailor  →  resumes/*.pdf
+optimizer/jobs.xlsx  →  (Claude reads descriptions)  →  score + tailor  →  optimizer/resumes/*.pdf
 ```
 
-1. **`jobs.xlsx`** — exported from the LinkedIn Job Tracker extension. Columns: `Role`, `Company`, `Location`, `Posted`, `Applicants`, `Job Link`, `Description`
-2. **Claude** — reads each row, scores fit, tailors the resume for matches, writes PDFs to `resumes/`
+1. **`optimizer/jobs.xlsx`** — exported from the LinkedIn Job Tracker extension. Columns: `Role`, `Company`, `Location`, `Posted`, `Applicants`, `Job Link`, `Description`
+2. **Claude** — reads each row, scores fit, tailors the resume for matches, writes PDFs to `optimizer/resumes/`
 
 The job description is already in `jobs.xlsx` — no separate scraping step needed.
 
@@ -50,19 +57,19 @@ The job description is already in `jobs.xlsx` — no separate scraping step need
 
 Run:
 ```bash
-ls jobs.xlsx resume_optimizer_skill.md && (ls resume.tex 2>/dev/null || ls resume.docx 2>/dev/null) && echo "resume OK"
+ls optimizer/jobs.xlsx optimizer/resume_optimizer_skill.md && (ls optimizer/resume.tex 2>/dev/null || ls optimizer/resume.docx 2>/dev/null) && echo "resume OK"
 ```
 
 | File | Description |
 |------|-------------|
-| `jobs.xlsx` | Job list exported from LinkedIn Job Tracker extension |
-| `resume.tex` or `resume.docx` | Your base resume — **never overwrite this** |
-| `resume_optimizer_skill.md` | XYZ formula rules used by subagents |
+| `optimizer/jobs.xlsx` | Job list exported from LinkedIn Job Tracker extension |
+| `optimizer/resume.tex` or `optimizer/resume.docx` | Your base resume — **never overwrite this** |
+| `optimizer/resume_optimizer_skill.md` | XYZ formula rules used by subagents |
 
 If any file is missing:
-- `jobs.xlsx` → install the LinkedIn Job Tracker extension, track jobs on LinkedIn, click Export
-- `resume.tex` / `resume.docx` → place your resume in this folder
-- `resume_optimizer_skill.md` → restore from git
+- `optimizer/jobs.xlsx` → install the LinkedIn Job Tracker extension, track jobs on LinkedIn, click Export, place in `optimizer/`
+- `optimizer/resume.tex` / `optimizer/resume.docx` → place your resume in `optimizer/`
+- `optimizer/resume_optimizer_skill.md` → restore from git
 
 ### 2. Python 3
 
@@ -89,7 +96,7 @@ If it fails:
 pip3 install openpyxl
 ```
 
-### 4. LaTeX or pandoc (depends on resume format)
+### 4. LaTeX (only if using resume.tex)
 
 **If using `resume.tex`** — check pdflatex:
 ```bash
@@ -100,14 +107,7 @@ If missing:
 brew install --cask mactex-no-gui
 ```
 
-**If using `resume.docx`** — check pandoc:
-```bash
-pandoc --version 2>&1 | head -1
-```
-If missing:
-```
-brew install pandoc
-```
+**If using `resume.docx`** — no additional tools required.
 
 ### Preflight summary rule
 
@@ -121,7 +121,6 @@ After running all checks, print a status table:
 | Python 3 | ✅ / ❌ not found |
 | openpyxl | ✅ / ❌ not installed |
 | pdflatex (if .tex) | ✅ / ❌ not found |
-| pandoc (if .docx) | ✅ / ❌ not found |
 
 If any row shows ❌, stop and wait for the user to fix it before continuing.
 
@@ -133,7 +132,7 @@ If any row shows ❌, stop and wait for the user to fix it before continuing.
 
 Detect resume format:
 ```bash
-ls resume.tex 2>/dev/null && echo "tex" || echo "docx"
+ls optimizer/resume.tex 2>/dev/null && echo "tex" || echo "docx"
 ```
 
 **If `.tex`:** output format is `.tex` → compiled to PDF with pdflatex.
@@ -143,17 +142,17 @@ Read the resume. Extract a concise candidate profile:
 - Top 10 skills, years of experience, role types, tech stack.
 - Store as `CANDIDATE_PROFILE` (max 200 words). Inject into every analyst subagent.
 
-Ensure `jobs.xlsx` has output columns: **`fit_score`**, **`fit_reasoning`**, **`resume_path`**. If absent, add them as new headers.
+Ensure `optimizer/jobs.xlsx` has output columns: **`fit_score`**, **`fit_reasoning`**, **`resume_path`**. If absent, add them as new headers.
 
 ### Step 2 — Read jobs from Excel
 
-Use Python to read all rows from `jobs.xlsx`:
+Use Python to read all rows from `optimizer/jobs.xlsx`:
 
 ```python
 from openpyxl import load_workbook
 import json
 
-wb = load_workbook('jobs.xlsx')
+wb = load_workbook('optimizer/jobs.xlsx')
 ws = wb.active
 headers = [cell.value for cell in ws[1]]
 jobs = []
@@ -181,16 +180,15 @@ Each subagent receives this prompt (inject `JOB_JSON`, `CANDIDATE_PROFILE`, `RES
 > 1. **SCORE** — Assign `fit_score` (0–100) based on: skills match, experience alignment, role type, domain. Write 2-sentence `fit_reasoning`.
 >
 > 2. **OPTIMIZE** — If `fit_score >= 65`:
->    - Read `resume.{RESUME_FORMAT}`.
->    - Use `resume_optimizer_skill.md` to tailor it to this job description.
+>    - Read `optimizer/resume.{RESUME_FORMAT}`.
+>    - Use `optimizer/resume_optimizer_skill.md` to tailor it to this job description.
 >    - After generating a draft, verify the resume is genuinely tailored — add key requirements to improve fit.
->    - Save to `./resumes/{COMPANY}_{ROLE}.{RESUME_FORMAT}` (sanitize special characters to underscores).
->    - **If `.tex`:** Compile with `/Library/TeX/texbin/pdflatex -output-directory ./resumes ./resumes/{COMPANY}_{ROLE}.tex`. Delete `.aux`, `.out`, `.log`. Set `resume_path` = `./resumes/{COMPANY}_{ROLE}.pdf`
->    - **If `.docx`:** Convert with `pandoc ./resumes/{COMPANY}_{ROLE}.docx -o ./resumes/{COMPANY}_{ROLE}.pdf`. Set `resume_path` = `./resumes/{COMPANY}_{ROLE}.pdf`
->    - If compilation/conversion fails, keep the source file and set `resume_path` to null.
->    - Otherwise set `resume_path` = null.
+>    - Save to `optimizer/resumes/{COMPANY}_{ROLE}.{RESUME_FORMAT}` (sanitize special characters to underscores).
+>    - **If `.tex`:** Compile with `/Library/TeX/texbin/pdflatex -output-directory optimizer/resumes optimizer/resumes/{COMPANY}_{ROLE}.tex`. Delete `.aux`, `.out`, `.log`. Set `resume_path` = `optimizer/resumes/{COMPANY}_{ROLE}.pdf`
+>    - **If `.docx`:** Do NOT convert to PDF. Set `resume_path` = `optimizer/resumes/{COMPANY}_{ROLE}.docx`
+>    - If `.tex` compilation fails, keep the source file and set `resume_path` to null.
 >
-> 3. **REPORT:** Append one JSON line to `results.jsonl`:
+> 3. **REPORT:** Append one JSON line to `optimizer/results.jsonl`:
 >    ```json
 >    {"row": {ROW}, "role": "...", "company": "...", "fit_score": 0, "fit_reasoning": "...", "resume_path": "... or null"}
 >    ```
@@ -206,7 +204,7 @@ Wait for all subagents to finish.
 from openpyxl import load_workbook
 import json
 
-wb = load_workbook('jobs.xlsx')
+wb = load_workbook('optimizer/jobs.xlsx')
 ws = wb.active
 
 headers = {cell.value: cell.column for cell in ws[1]}
@@ -216,20 +214,20 @@ for col_name in ['fit_score', 'fit_reasoning', 'resume_path']:
         ws.cell(row=1, column=col, value=col_name)
         headers[col_name] = col
 
-with open('results.jsonl') as f:
+with open('optimizer/results.jsonl') as f:
     for line in f:
         r = json.loads(line)
         ws.cell(row=r['row'], column=headers['fit_score'], value=r['fit_score'])
         ws.cell(row=r['row'], column=headers['fit_reasoning'], value=r['fit_reasoning'])
         ws.cell(row=r['row'], column=headers['resume_path'], value=r['resume_path'])
 
-wb.save('jobs.xlsx')
-print("jobs.xlsx updated.")
+wb.save('optimizer/jobs.xlsx')
+print("optimizer/jobs.xlsx updated.")
 ```
 
 ### Step 5 — Final report
 
-Read `results.jsonl`. Print a markdown table sorted by `fit_score` descending:
+Read `optimizer/results.jsonl`. Print a markdown table sorted by `fit_score` descending:
 
 | Role | Company | Score | Reasoning | Resume |
 |------|---------|-------|-----------|--------|
@@ -240,25 +238,33 @@ Read `results.jsonl`. Print a markdown table sorted by `fit_score` descending:
 ## File Structure
 
 ```
-jobs_marco/
-├── CLAUDE.md                  ← Claude Code instructions (this file)
-├── resume_optimizer_skill.md  ← XYZ formula rules
-├── resume.tex                 ← your base resume in LaTeX (READ ONLY)
-├── resume.docx                ← your base resume in Word (READ ONLY, alternative)
-├── jobs.xlsx                  ← job list (updated with scores after Step 4)
-├── results.jsonl              ← generated by Step 3
-├── linkedin-job-tracker/          ← LinkedIn Job Tracker extension source
-└── resumes/
-    ├── Stripe_PM.tex / .docx
-    ├── Stripe_PM.pdf
-    └── ...
+jobsAI/
+├── CLAUDE.md                        ← Claude Code instructions (this file)
+├── README.md
+├── .gitignore
+├── linkedin-job-tracker/            ← Chrome extension source
+│   ├── manifest.json
+│   ├── content.js / content.css
+│   ├── popup.html / popup.js
+│   ├── background.js
+│   └── xlsx.mini.min.js
+└── optimizer/
+    ├── resume_optimizer_skill.md    ← XYZ formula rules
+    ├── resume.tex                   ← your base resume (READ ONLY, gitignored)
+    ├── resume.docx                  ← alternative resume (READ ONLY, gitignored)
+    ├── jobs.xlsx                    ← job list (gitignored)
+    ├── results.jsonl                ← generated by Step 3 (gitignored)
+    └── resumes/                     ← generated PDFs (gitignored)
+        ├── Stripe_PM.tex / .docx
+        ├── Stripe_PM.pdf
+        └── ...
 ```
 
 ---
 
 ## Rules for Subagents
 
-- **Never overwrite `resume.tex` or `resume.docx`** — always write to `resumes/` subdirectory
+- **Never overwrite `optimizer/resume.tex` or `optimizer/resume.docx`** — always write to `optimizer/resumes/`
 - Output filenames: `{COMPANY}_{ROLE}.tex` or `{COMPANY}_{ROLE}.docx` — sanitize spaces and special characters to underscores
 - After compiling PDF from `.tex`, delete `.aux`, `.out`, `.log` files
 - If PDF generation fails, save the source file anyway and set `resume_path` to null
@@ -271,8 +277,7 @@ jobs_marco/
 |---------|-----|
 | `ModuleNotFoundError: openpyxl` | `pip3 install openpyxl` |
 | `pdflatex: command not found` | `brew install --cask mactex-no-gui` then restart terminal |
-| `pandoc: command not found` | `brew install pandoc` |
-| `resumes/` directory missing | `mkdir -p resumes` |
+| `optimizer/resumes/` directory missing | `mkdir -p optimizer/resumes` |
 | jobs.xlsx missing Description column | Re-export from LinkedIn Job Tracker extension (v1.1+) |
 
 ---
@@ -280,19 +285,15 @@ jobs_marco/
 ## Sharing This Project
 
 Include:
-- `CLAUDE.md`, `resume_optimizer_skill.md`, `linkedin-job-tracker/`
+- `CLAUDE.md`, `linkedin-job-tracker/`, `optimizer/resume_optimizer_skill.md`
 
-Exclude (add to `.gitignore`):
+Exclude (already in `.gitignore`):
 ```
-resume.tex
-resume.docx
-jobs.xlsx
-results.jsonl
-resumes/
-*.pdf
-*.aux
-*.log
-*.out
+optimizer/resume.tex
+optimizer/resume.docx
+optimizer/jobs.xlsx
+optimizer/results.jsonl
+optimizer/resumes/
 ```
 
-New users: add their own resume (`.tex` or `.docx`) and `jobs.xlsx`, then open the folder in Claude Code.
+New users: place their resume in `optimizer/` and export `jobs.xlsx` from the extension into `optimizer/`, then open the folder in Claude Code.

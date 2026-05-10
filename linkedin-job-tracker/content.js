@@ -1,5 +1,9 @@
 const BTN_CLASS = 'ljt-track-btn';
 
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
 // --- Panels ---
 
 function getDetailPanel() {
@@ -226,6 +230,137 @@ function processPage() {
 
   addTrackButton(panel, jobId);
 }
+
+// --- Track All Visible ---
+
+function getJobCards() {
+  // Search/collections pages use lazy-column; recommended/collections pages use scaffold-layout__list
+  const leftCol = document.querySelectorAll('[data-testid="lazy-column"]')[0]
+    || document.querySelector('.scaffold-layout__list');
+  if (!leftCol) return [];
+  // Standard search + recommended pages: list items with data attribute
+  const byAttr = leftCol.querySelectorAll('[data-occludable-job-id]');
+  if (byAttr.length) return Array.from(byAttr);
+  // AI search-results pages: role=button divs with componentkey (job cards only)
+  const byRole = leftCol.querySelectorAll('[role="button"][componentkey]');
+  if (byRole.length) return Array.from(byRole);
+  // Fallback: any role=button with substantial text
+  return Array.from(leftCol.querySelectorAll('[role="button"]')).filter(b =>
+    b.textContent.trim().length > 30
+  );
+}
+
+async function waitForPanelJob(previousJobId, timeout = 6000) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const jobId = getJobIdFromUrl();
+    if (jobId && jobId !== previousJobId) {
+      const panel = getDetailPanel();
+      if (panel && findSaveButton(panel)) return { jobId, panel };
+    }
+    await sleep(150);
+  }
+  return null;
+}
+
+async function waitForDescription(timeout = 8000) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const panel = getDetailPanel();
+    if (panel) {
+      const desc = getDescription(panel);
+      if (desc && desc.length > 30) return { panel, desc };
+    }
+    await sleep(200);
+  }
+  // Return whatever is available after timeout
+  const panel = getDetailPanel();
+  return { panel, desc: panel ? getDescription(panel) : '' };
+}
+
+async function trackAllVisible(port, isStopped) {
+  const cards = getJobCards();
+  if (!cards.length) {
+    port.postMessage({ type: 'error', message: 'No job cards found on this page.' });
+    return;
+  }
+
+  let done = 0, skipped = 0, failed = 0;
+  const total = cards.length;
+  let aborted = false;
+  port.onDisconnect.addListener(() => { aborted = true; });
+
+  port.postMessage({ type: 'progress', done, total, skipped, failed });
+
+  for (const card of cards) {
+    if (aborted) break;
+    if (isStopped()) {
+      port.postMessage({ type: 'stopped', done: done - skipped - failed, skipped, failed, total });
+      return;
+    }
+    try {
+      // Pre-check: if card exposes its job ID (standard search pages), skip click entirely
+      const preId = card.dataset?.occludableJobId;
+      if (preId && await isTracked(preId)) {
+        skipped++; done++;
+        port.postMessage({ type: 'progress', done, total, skipped, failed });
+        continue;
+      }
+
+      const prevJobId = getJobIdFromUrl();
+      // On recommended/collections pages the card is an <li>; clicking it doesn't
+      // trigger LinkedIn's SPA handler — the inner <a> must be clicked instead.
+      (card.querySelector('a[href*="/jobs/view/"]') || card).click();
+
+      const result = await waitForPanelJob(prevJobId);
+      if (!result) { failed++; done++; port.postMessage({ type: 'progress', done, total, skipped, failed }); continue; }
+
+      const { jobId } = result;
+
+      // Post-click check for pages where ID wasn't known before clicking
+      if (await isTracked(jobId)) {
+        skipped++; done++;
+        port.postMessage({ type: 'progress', done, total, skipped, failed });
+        continue;
+      }
+
+      // Wait until description is present, not a fixed delay
+      const { panel, desc } = await waitForDescription();
+      if (!panel) { failed++; done++; port.postMessage({ type: 'progress', done, total, skipped, failed }); continue; }
+
+      await toggleJob(
+        jobId,
+        getJobTitle(panel),
+        getCompany(panel),
+        getJobUrl(jobId),
+        desc,
+        getLocation(panel),
+        getPostedDate(panel),
+        getApplicants(panel)
+      );
+
+      done++;
+      port.postMessage({ type: 'progress', done, total, skipped, failed });
+      await sleep(300);
+    } catch {
+      failed++; done++;
+      port.postMessage({ type: 'progress', done, total, skipped, failed });
+    }
+  }
+
+  if (!aborted) {
+    port.postMessage({ type: 'done', done: done - skipped - failed, skipped, failed, total });
+  }
+}
+
+chrome.runtime.onConnect.addListener(port => {
+  if (port.name !== 'ljt-track-all') return;
+  let stopRequested = false;
+  port.onMessage.addListener(msg => {
+    if (msg.action === 'trackAllVisible') trackAllVisible(port, () => stopRequested);
+    if (msg.action === 'stop') stopRequested = true;
+  });
+});
 
 // --- Init ---
 

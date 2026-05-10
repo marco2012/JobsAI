@@ -1,0 +1,18 @@
+{
+  "session_id": "session-2026-05-10-1242",
+  "started": "2026-05-10T11:42:05.721Z",
+  "files_read": {
+    "/Users/marco/Development/jobsAI/resume.tex": {
+      "count": 1,
+      "tokens": 0,
+      "first_read": "2026-05-10T11:45:10.013Z"
+    }
+  },
+  "files_written": [],
+  "edit_counts": {},
+  "anatomy_hits": 0,
+  "anatomy_misses": 1,
+  "repeated_reads_warned": 0,
+  "cerebrum_warnings": 0,
+  "stop_count": 2
+}
