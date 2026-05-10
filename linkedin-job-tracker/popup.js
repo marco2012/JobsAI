@@ -248,7 +248,7 @@ async function exportXlsx() {
   chrome.downloads.download({ url, filename, saveAs: false }, () => URL.revokeObjectURL(url));
 }
 
-// ── PDF helpers ──────────────────────────────────────────────────────────────
+// ── File text extraction ─────────────────────────────────────────────────────
 
 function extractPdfText(file) {
   return new Promise((resolve, reject) => {
@@ -271,6 +271,12 @@ function extractPdfText(file) {
     reader.onerror = () => reject(new Error('Failed to read file'));
     reader.readAsArrayBuffer(file);
   });
+}
+
+async function extractDocxText(file) {
+  const arrayBuffer = await file.arrayBuffer();
+  const result = await mammoth.extractRawText({ arrayBuffer });
+  return result.value;
 }
 
 async function generateCandidateProfile(resumeText, apiKey, model) {
@@ -709,10 +715,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!file) return;
     document.getElementById('fileInputText').textContent = file.name;
     const statusEl = document.getElementById('uploadStatus');
-    const isTex = file.name.toLowerCase().endsWith('.tex');
-    const isPdf = file.name.toLowerCase().endsWith('.pdf');
-    if (!isTex && !isPdf) {
-      statusEl.textContent = 'Please upload a PDF or .tex file.';
+    const isTex  = file.name.toLowerCase().endsWith('.tex');
+    const isPdf  = file.name.toLowerCase().endsWith('.pdf');
+    const isDocx = file.name.toLowerCase().endsWith('.docx');
+    if (!isTex && !isPdf && !isDocx) {
+      statusEl.textContent = 'Please upload a PDF, .tex, or .docx file.';
       statusEl.style.color = 'var(--destructive)';
       return;
     }
@@ -724,22 +731,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     const spinner = '<span class="spinner"></span>';
     statusEl.style.color = 'var(--muted-fg)';
-    statusEl.innerHTML = `${spinner}${isTex ? 'Reading .tex file…' : 'Extracting PDF text…'}`;
+    const label = isTex ? 'Reading .tex file…' : isDocx ? 'Extracting .docx text…' : 'Extracting PDF text…';
+    statusEl.innerHTML = `${spinner}${label}`;
     try {
       let text;
-      if (isTex) {
-        text = await file.text();
-      } else {
-        text = await extractPdfText(file);
-      }
+      if (isTex)       text = await file.text();
+      else if (isDocx) text = await extractDocxText(file);
+      else             text = await extractPdfText(file);
       statusEl.innerHTML = `${spinner}Generating candidate profile…`;
+      const format    = isTex ? 'tex' : isDocx ? 'docx' : 'pdf';
       const truncated = text.slice(0, isTex ? 8000 : 4000);
-      await saveSyncSettings({ resumeText: truncated, resumeFormat: isTex ? 'tex' : 'pdf' });
+      await saveSyncSettings({ resumeText: truncated, resumeFormat: format });
       const profile = await generateCandidateProfile(truncated, settings.openrouterKey, settings.selectedModel || 'deepseek/deepseek-v4-flash');
       document.getElementById('candidateProfileArea').value = profile;
       await saveSyncSettings({ candidateProfile: profile });
       statusEl.innerHTML = '';
-      statusEl.textContent = `✓ Profile generated and saved (${isTex ? '.tex' : 'PDF'} format).`;
+      statusEl.textContent = `✓ Profile generated and saved (${format} format).`;
       statusEl.style.color = 'var(--success)';
       render();
     } catch (err) {

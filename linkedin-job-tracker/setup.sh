@@ -20,6 +20,11 @@ curl -fsSL "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" -o
 echo "Done. File size: $(du -sh jszip.min.js | cut -f1)"
 
 echo ""
+echo "Downloading Mammoth (mammoth.browser.min.js)..."
+curl -fsSL "https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js" -o mammoth.browser.min.js
+echo "Done. File size: $(du -sh mammoth.browser.min.js | cut -f1)"
+
+echo ""
 echo "Setup complete. Load the extension in Chrome:"
 echo "  1. Open chrome://extensions"
 echo "  2. Enable Developer mode (top-right toggle)"
