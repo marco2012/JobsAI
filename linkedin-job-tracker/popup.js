@@ -224,7 +224,7 @@ Label it internally as CANDIDATE_PROFILE.
 Resume:
 ${resumeText}`,
       }],
-      max_tokens: 300,
+      max_tokens: 1000,
     }),
   });
 
@@ -234,13 +234,15 @@ ${resumeText}`,
   if (!response.ok) throw new Error(`OpenRouter error ${response.status}`);
 
   const data = await response.json();
-  console.log('[profile] response:', JSON.stringify(data).slice(0, 500));
+  const choice = data.choices?.[0];
+  console.log('[profile] finish_reason:', choice?.finish_reason, '| response:', JSON.stringify(data).slice(0, 500));
 
   if (!data.choices?.length) throw new Error('No response from model');
+  if (choice.finish_reason === 'length') throw new Error('Model hit token limit — try a smaller model or shorter resume');
 
-  // Some models (e.g. DeepSeek reasoning) return null content with reasoning_content instead
-  const msg = data.choices[0].message;
-  const content = msg.content ?? msg.reasoning_content ?? '';
+  // DeepSeek reasoning models return null content and put the answer in msg.reasoning
+  const msg = choice.message;
+  const content = msg.content ?? msg.reasoning_content ?? msg.reasoning ?? '';
   if (!content.trim()) throw new Error('Model returned empty content');
   return content.trim();
 }
