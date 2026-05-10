@@ -248,8 +248,7 @@ async function generateCandidateProfile(resumeText, apiKey, model) {
 - Total years of professional experience
 - Role types the candidate has held (e.g. "Senior Software Engineer", "Product Manager")
 - Full tech stack mentioned
-Output ONLY a plain-text summary. Maximum 200 words. No bullet symbols, no markdown.
-Label it internally as CANDIDATE_PROFILE.
+Output ONLY a plain-text summary. Maximum 200 words. No bullet symbols, no markdown. Do not include any labels or headings.
 
 Resume:
 ${resumeText}`,
@@ -272,8 +271,9 @@ ${resumeText}`,
 
   // DeepSeek reasoning models return null content and put the answer in msg.reasoning
   const msg = choice.message;
-  const content = msg.content ?? msg.reasoning_content ?? msg.reasoning ?? '';
+  let content = msg.content ?? msg.reasoning_content ?? msg.reasoning ?? '';
   if (!content.trim()) throw new Error('Model returned empty content');
+  content = content.trim().replace(/^CANDIDATE_PROFILE[:\s]*/i, '');
   return content.trim();
 }
 
