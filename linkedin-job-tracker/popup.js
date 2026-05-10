@@ -100,17 +100,12 @@ async function render(page) {
       ? `<span class="desc-ok" title="Description saved">✓</span>`
       : `<span class="desc-missing" title="No description">–</span>`;
 
-    let scoreBadge;
     const score = job.fit_score;
-    if (score == null) {
-      scoreBadge = `<span class="score-badge score-grey">–</span>`;
-    } else if (score >= 75) {
-      scoreBadge = `<span class="score-badge score-green">${score}</span>`;
-    } else if (score >= 50) {
-      scoreBadge = `<span class="score-badge score-yellow">${score}</span>`;
-    } else {
-      scoreBadge = `<span class="score-badge score-red">${score}</span>`;
-    }
+    const scoreClass = score == null ? 'score-grey'
+      : score >= 75 ? 'score-green'
+      : score >= 65 ? 'score-yellow'
+      : 'score-red';
+    const scoreLabel = score != null ? score : '–';
 
     return `
     <div class="job-item">
@@ -125,8 +120,8 @@ async function render(page) {
           <span class="job-date">${fmt(job.dateAdded)}</span>
         </div>
         ${chips ? `<div class="job-chips">${chips}</div>` : ''}
-        ${scoreBadge}
       </div>
+      <div class="job-score ${scoreClass}">${scoreLabel}</div>
       <button class="job-remove" data-idx="${start + i}" title="Remove">✕</button>
     </div>`;
   }).join('');
