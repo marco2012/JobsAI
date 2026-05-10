@@ -1,20 +1,21 @@
-// ── Resume cache (url → generated text), persisted in storage.local ──────────
+// ── Resume cache + in-progress generation state ───────────────────────────────
 const generatedResumes = new Map();
+let resumeGenerations = {}; // { [url]: { status: 'pending'|'error', error?, startedAt } }
+let progressMode = null; // 'scoring' | 'tracking' | null
+let generatingTimer = null;
 
 function loadGeneratedResumes() {
-  return new Promise(r => chrome.storage.local.get('generatedResumes', d => {
+  return new Promise(r => chrome.storage.local.get(['generatedResumes', 'resumeGenerations'], d => {
     const obj = d.generatedResumes || {};
     Object.entries(obj).forEach(([url, content]) => generatedResumes.set(url, content));
+    // Drop stale pending entries (> 3 min — background worker was likely killed)
+    const gens = d.resumeGenerations || {};
+    const now = Date.now();
+    Object.keys(gens).forEach(url => {
+      if (gens[url].status === 'pending' && now - (gens[url].startedAt || 0) > 180000) delete gens[url];
+    });
+    resumeGenerations = gens;
     r();
-  }));
-}
-
-function saveGeneratedResume(url, content) {
-  generatedResumes.set(url, content);
-  return new Promise(r => chrome.storage.local.get('generatedResumes', d => {
-    const obj = d.generatedResumes || {};
-    obj[url] = content;
-    chrome.storage.local.set({ generatedResumes: obj }, r);
   }));
 }
 
@@ -43,6 +44,10 @@ function saveLocalResumeData(obj) {
 }
 function saveSyncSettings(obj) {
   return new Promise(r => chrome.storage.sync.set(obj, r));
+}
+
+function notify(title, message) {
+  chrome.runtime.sendMessage({ action: 'notify', title, message });
 }
 
 // ── Utilities ────────────────────────────────────────────────────────────────
@@ -131,20 +136,27 @@ async function render(page) {
 
     const canGen = !!(sync.candidateProfile && hasDesc);
     const hasResume = generatedResumes.has(job.url);
-    const genDisabled = !hasResume && !canGen;
-    const genTitle = hasResume ? 'Download tailored resume (PDF)'
-      : canGen ? 'Generate tailored resume'
-      : 'No description available';
-    const genIcon = hasResume
-      ? `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-           <polyline points="7 10 12 15 17 10"/>
-           <line x1="12" y1="15" x2="12" y2="3"/>
-         </svg>`
-      : `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-           <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-           <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-         </svg>`;
+    const genState = resumeGenerations[job.url];
+    const isGenerating = genState?.status === 'pending';
+    const genError = genState?.status === 'error' ? genState.error : null;
+
+    let genBtnClass = 'job-gen-btn';
+    let genBtnContent, genBtnTitle, genBtnDisabled;
+    if (isGenerating) {
+      genBtnClass += ' job-gen-btn--stop';
+      genBtnContent = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+      genBtnTitle = 'Stop generation';
+      genBtnDisabled = false;
+    } else if (hasResume) {
+      genBtnClass += ' job-gen-btn--ready';
+      genBtnContent = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
+      genBtnTitle = 'Download tailored resume';
+      genBtnDisabled = false;
+    } else {
+      genBtnContent = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
+      genBtnTitle = genError ? `Last attempt failed: ${genError}` : canGen ? 'Generate tailored resume' : 'No description available';
+      genBtnDisabled = !canGen;
+    }
     return `
     <div class="job-item">
       <div class="job-score ${scoreClass}">${scoreLabel}</div>
@@ -156,8 +168,10 @@ async function render(page) {
           <span class="job-company">${esc(job.company)}</span>
           ${job.location ? `<span class="job-sep"></span><span class="job-location">${esc(job.location)}</span>` : ''}
         </div>
+        ${isGenerating ? `<p class="job-generating"><span class="spinner"></span><span data-started-at="${genState.startedAt || Date.now()}">Generating…</span></p>` : ''}
+        ${genError ? `<p class="job-generating" style="color:var(--destructive)">⚠ ${esc(genError)}</p>` : ''}
       </div>
-      <button class="job-gen-btn${hasResume ? ' job-gen-btn--ready' : ''}" data-url="${esc(job.url)}" title="${genTitle}" ${genDisabled ? 'disabled' : ''}>${genIcon}</button>
+      <button class="${genBtnClass}" data-url="${esc(job.url)}" title="${esc(genBtnTitle)}" ${genBtnDisabled ? 'disabled' : ''}>${genBtnContent}</button>
       <button class="job-remove" data-idx="${start + i}" title="Remove">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
@@ -181,6 +195,15 @@ async function render(page) {
       const job = pageJobs.find(j => j.url === btn.dataset.url);
       if (!job) return;
 
+      // Currently generating — stop it
+      if (resumeGenerations[job.url]?.status === 'pending') {
+        chrome.runtime.sendMessage({ action: 'stopGeneration', jobUrl: job.url });
+        delete resumeGenerations[job.url];
+        chrome.storage.local.set({ resumeGenerations: { ...resumeGenerations } });
+        await render();
+        return;
+      }
+
       // Already generated — download immediately
       if (generatedResumes.has(job.url)) {
         const local = await loadLocalResumeData();
@@ -188,30 +211,48 @@ async function render(page) {
         return;
       }
 
-      // Generate
-      const origHTML = btn.innerHTML;
-      btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span>';
-      try {
-        const [s, local] = await Promise.all([loadSyncSettings(), loadLocalResumeData()]);
-        if (!local.resumeText) throw new Error('Re-upload your resume in Settings to enable this');
-        const format = local.resumeFormat || 'pdf';
-        console.log(`[resume] generating (${format}) for "${job.title}" @ "${job.company}"`);
-        const content = await generateTailoredResume(job, local.resumeText, s.openrouterKey, s.selectedModel || 'deepseek/deepseek-v4-flash', format);
-        await saveGeneratedResume(job.url, content);
-        await render(); // shows download icon
-      } catch (err) {
-        console.error('[resume]', err.message);
-        btn.innerHTML = '!';
-        btn.title = err.message;
-        btn.style.color = 'var(--destructive)';
-        setTimeout(() => { btn.innerHTML = origHTML; btn.style.color = ''; btn.title = 'Generate tailored resume'; btn.disabled = false; }, 3000);
+      // Dispatch generation to background service worker
+      const [s, local] = await Promise.all([loadSyncSettings(), loadLocalResumeData()]);
+      if (!local.resumeText) {
+        btn.title = 'Re-upload your resume in Settings to enable this';
+        return;
       }
+      const format = local.resumeFormat || 'pdf';
+      // Optimistically mark as pending so spinner shows immediately
+      resumeGenerations[job.url] = { status: 'pending', startedAt: Date.now() };
+      const updatedGens = { ...resumeGenerations };
+      chrome.storage.local.set({ resumeGenerations: updatedGens });
+      chrome.runtime.sendMessage({
+        action: 'generateResume',
+        jobUrl: job.url,
+        job,
+        resumeText: local.resumeText,
+        apiKey: s.openrouterKey,
+        model: s.selectedModel || 'deepseek/deepseek-v4-flash',
+        format,
+      });
+      await render();
     });
   });
 
   document.getElementById('prevBtn')?.addEventListener('click', () => render(currentPage - 1));
   document.getElementById('nextBtn')?.addEventListener('click', () => render(currentPage + 1));
+
+  // Tick elapsed-time labels for pending generations without re-rendering
+  const hasPending = Object.values(resumeGenerations).some(g => g?.status === 'pending');
+  if (hasPending && !generatingTimer) {
+    generatingTimer = setInterval(() => {
+      const now = Date.now();
+      document.querySelectorAll('[data-started-at]').forEach(el => {
+        const secs = Math.floor((now - +el.dataset.startedAt) / 1000);
+        const m = Math.floor(secs / 60);
+        el.textContent = `Generating… ${m > 0 ? `${m}m ` : ''}${secs % 60}s`;
+      });
+    }, 1000);
+  } else if (!hasPending && generatingTimer) {
+    clearInterval(generatingTimer);
+    generatingTimer = null;
+  }
 }
 
 // ── Build XLSX buffer ────────────────────────────────────────────────────────
@@ -332,67 +373,6 @@ ${resumeText}`,
   return content.trim();
 }
 
-// ── Resume generation ────────────────────────────────────────────────────────
-
-async function generateTailoredResume(job, resumeText, apiKey, model, format = 'pdf') {
-  const isTex = format === 'tex';
-  const formatRules = isTex
-    ? `- Preserve ALL LaTeX commands, packages, document class, and preamble exactly as-is
-- Never escape # inside \\newcommand definitions — #1, #2, #3 are argument placeholders, not literal text
-- Keep the same \\begin{document} ... \\end{document} structure
-- Output ONLY the complete .tex file. Start with the document class line (e.g. \\documentclass[...])`
-    : `- Output the resume in Markdown format so it can be rendered as a formatted Word document:
-  - # Candidate Name (H1, one line)
-  - Contact info as a plain line (email | phone | LinkedIn)
-  - ## SECTION HEADINGS (H2) for Experience, Education, Skills, etc.
-  - ### Company | Role | Dates (H3) for each position
-  - - Bullet points for achievements (XYZ formula, metrics required)
-  - **bold** for company names, key metrics, and technologies
-  - Start directly with # Name`;
-
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model,
-      messages: [{
-        role: 'user',
-        content: `You are a professional resume writer${isTex ? ' specializing in LaTeX' : ''}. Tailor this resume to the job description using the XYZ formula.
-
-Rules:
-- XYZ formula: "Accomplished [X] as measured by [Y] by doing [Z]"
-- Replace weak verbs (helped, assisted, worked on, responsible for) with power verbs (architected, drove, scaled, engineered, launched, owned, spearheaded)
-- Every bullet must have a quantifiable metric (%, $, scale, time saved, users impacted)
-- Reorder bullets to highlight skills matching THIS job first
-- Naturally incorporate the job's keywords into bullet descriptions
-- Cut anything not relevant to this specific role
-- After drafting, review and add any key job requirements that are missing
-${formatRules}
-
-ORIGINAL RESUME:
-${resumeText}
-
-JOB DESCRIPTION:
-${job.description || ''}`,
-      }],
-      max_tokens: 2000,
-    }),
-  });
-
-  if (response.status === 401) throw new Error('Invalid API key (401)');
-  if (response.status === 429) throw new Error('Rate limited — try again later');
-  if (!response.ok) throw new Error(`OpenRouter error ${response.status}`);
-
-  const data = await response.json();
-  const choice = data.choices?.[0];
-  console.log('[resume] finish_reason:', choice?.finish_reason);
-  if (!data.choices?.length) throw new Error('No response from model');
-  const msg = choice.message;
-  const content = msg.content ?? msg.reasoning_content ?? msg.reasoning ?? '';
-  if (!content.trim()) throw new Error('Model returned empty content');
-  return content.trim();
-}
-
 function buildDocx(markdown) {
   const x = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
@@ -458,7 +438,7 @@ async function downloadResume(content, job, format) {
   const base = `resume_${san(job.company)}_${san(job.title)}`;
   let blob, filename;
   if (format === 'tex') {
-    blob = new Blob([content], { type: 'text/plain' });
+    blob = new Blob([content], { type: 'application/octet-stream' });
     filename = base + '.tex';
   } else {
     blob = await buildDocx(content);
@@ -511,29 +491,113 @@ function initSettingsToggle() {
   });
 }
 
-// ── Track All Visible ────────────────────────────────────────────────────────
+// ── Theme ─────────────────────────────────────────────────────────────────────
+
+const MOON_SVG = `<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>`;
+const SUN_SVG  = `<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>`;
+
+function applyTheme(scheme) {
+  document.documentElement.setAttribute('data-theme', scheme);
+  const icon = document.getElementById('themeIcon');
+  icon.innerHTML = scheme === 'dark' ? SUN_SVG : MOON_SVG;
+  document.getElementById('themeBtn').title = scheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+}
+
+function initTheme() {
+  chrome.storage.local.get('colorScheme', ({ colorScheme }) => {
+    const scheme = colorScheme ||
+      (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    applyTheme(scheme);
+  });
+
+  document.getElementById('themeBtn').addEventListener('click', () => {
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    const next = isDark ? 'light' : 'dark';
+    applyTheme(next);
+    chrome.storage.local.set({ colorScheme: next });
+  });
+}
+
+// ── Track All / Score All progress UI ────────────────────────────────────────
 
 function setProgressVisible(on) {
   document.getElementById('progressSection').style.display = on ? '' : 'none';
 }
 
-function updateProgress(done, total, skipped, failed) {
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-  document.getElementById('progressFill').style.width = `${pct}%`;
-  const newCount = done - skipped - failed;
-  const parts = [`${newCount} tracked`];
-  if (skipped) parts.push(`${skipped} already tracked`);
-  if (failed)  parts.push(`${failed} failed`);
-  document.getElementById('progressText').textContent =
-    `${done} / ${total} — ${parts.join(', ')}`;
+function initStopBtn() {
+  document.getElementById('stopBtn').addEventListener('click', () => {
+    const stopBtn = document.getElementById('stopBtn');
+    stopBtn.disabled = true;
+    stopBtn.textContent = 'Stopping…';
+    if (progressMode === 'tracking') chrome.runtime.sendMessage({ action: 'stopTracking' });
+    else if (progressMode === 'scoring') chrome.runtime.sendMessage({ action: 'stopScoring' });
+  });
+}
+
+function applyScoringState(state) {
+  const scoreAllBtn  = document.getElementById('scoreAllBtn');
+  const stopBtn      = document.getElementById('stopBtn');
+  const progressFill = document.getElementById('progressFill');
+  const progressText = document.getElementById('progressText');
+
+  if (state.status === 'running') {
+    progressMode = 'scoring';
+    setProgressVisible(true);
+    scoreAllBtn.disabled = true;
+    stopBtn.disabled = false;
+    stopBtn.textContent = 'Stop';
+    const pct = state.total > 0 ? ((state.current - 1) / state.total) * 100 : 0;
+    progressFill.style.width = `${pct}%`;
+    progressText.textContent = state.message;
+  } else if (progressMode === 'scoring') {
+    progressFill.style.width = '100%';
+    progressText.textContent = state.message;
+    scoreAllBtn.disabled = false;
+    stopBtn.disabled = true;
+    progressMode = null;
+    render();
+    setTimeout(() => setProgressVisible(false), 3000);
+  }
+}
+
+function applyTrackingState(state) {
+  const trackAllBtn  = document.getElementById('trackAllBtn');
+  const stopBtn      = document.getElementById('stopBtn');
+  const progressFill = document.getElementById('progressFill');
+  const progressText = document.getElementById('progressText');
+
+  if (state.status === 'running') {
+    progressMode = 'tracking';
+    setProgressVisible(true);
+    trackAllBtn.disabled = true;
+    stopBtn.disabled = false;
+    stopBtn.textContent = 'Stop';
+    if (state.total > 0) {
+      const pct = Math.round((state.done / state.total) * 100);
+      progressFill.style.width = `${pct}%`;
+      const newCount = state.done - (state.skipped || 0) - (state.failed || 0);
+      const parts = [`${newCount} tracked`];
+      if (state.skipped) parts.push(`${state.skipped} already tracked`);
+      if (state.failed)  parts.push(`${state.failed} failed`);
+      progressText.textContent = `${state.done} / ${state.total} — ${parts.join(', ')}`;
+    } else {
+      progressText.textContent = state.message || 'Starting…';
+    }
+    render();
+  } else if (progressMode === 'tracking') {
+    progressFill.style.width = '100%';
+    progressText.textContent = state.message;
+    trackAllBtn.disabled = false;
+    stopBtn.disabled = true;
+    progressMode = null;
+    render();
+    setTimeout(() => setProgressVisible(false), 3000);
+  }
 }
 
 function initTrackAll() {
-  const btn     = document.getElementById('trackAllBtn');
-  const stopBtn = document.getElementById('stopBtn');
-  let activePort = null;
+  const btn = document.getElementById('trackAllBtn');
 
-  // Enable button only when on a LinkedIn jobs page
   chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
     const url = tabs[0]?.url || '';
     const onJobsPage = /linkedin\.com\/jobs\/(search|collections)/.test(url);
@@ -541,212 +605,58 @@ function initTrackAll() {
     if (!onJobsPage) btn.title = 'Open a LinkedIn jobs search page first';
   });
 
-  stopBtn.addEventListener('click', () => {
-    if (activePort) {
-      activePort.postMessage({ action: 'stop' });
-      stopBtn.disabled = true;
-      stopBtn.textContent = 'Stopping…';
-    }
-  });
-
   btn.addEventListener('click', () => {
-    btn.disabled = true;
-    stopBtn.disabled = false;
-    stopBtn.textContent = 'Stop';
-    setProgressVisible(true);
-    document.getElementById('progressFill').style.width = '0%';
-    document.getElementById('progressText').textContent = 'Starting…';
-
     chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
-      const port = chrome.tabs.connect(tabs[0].id, { name: 'ljt-track-all' });
-      activePort = port;
-
-      function finish() {
-        btn.disabled = false;
-        stopBtn.disabled = true;
-        activePort = null;
-        render();
-      }
-
-      port.onMessage.addListener(msg => {
-        if (msg.type === 'progress') {
-          updateProgress(msg.done, msg.total, msg.skipped, msg.failed);
-          render();
-        } else if (msg.type === 'done') {
-          updateProgress(msg.total, msg.total, msg.skipped, msg.failed);
-          document.getElementById('progressText').textContent =
-            `Done! ${msg.done} new, ${msg.skipped} already tracked${msg.failed ? `, ${msg.failed} failed` : ''}`;
-          finish();
-        } else if (msg.type === 'stopped') {
-          document.getElementById('progressFill').style.width = '100%';
-          document.getElementById('progressText').textContent =
-            `Stopped — ${msg.done} new, ${msg.skipped} already tracked${msg.failed ? `, ${msg.failed} failed` : ''}`;
-          finish();
-        } else if (msg.type === 'error') {
-          document.getElementById('progressText').textContent = `Error: ${msg.message}`;
-          finish();
-        }
-      });
-
-      port.onDisconnect.addListener(() => {
-        activePort = null;
-        btn.disabled = false;
-        stopBtn.disabled = true;
-      });
-
-      port.postMessage({ action: 'trackAllVisible' });
+      const tabId = tabs[0]?.id;
+      if (!tabId) return;
+      progressMode = 'tracking';
+      btn.disabled = true;
+      const stopBtn = document.getElementById('stopBtn');
+      stopBtn.disabled = false;
+      stopBtn.textContent = 'Stop';
+      setProgressVisible(true);
+      document.getElementById('progressFill').style.width = '0%';
+      document.getElementById('progressText').textContent = 'Starting…';
+      chrome.runtime.sendMessage({ action: 'trackAll', tabId });
     });
   });
 }
 
-// ── Score job ────────────────────────────────────────────────────────────────
-
-async function scoreJob(job, candidateProfile, apiKey, model) {
-  const prompt = `You are a job-fit evaluator. Score how well this candidate fits this job.
-
-CANDIDATE PROFILE:
-${candidateProfile}
-
-JOB DESCRIPTION:
-${job.description || 'No description available.'}
-
-Respond with ONLY a single integer between 1 and 100.
-Score based on: skills match (40%), experience alignment (30%), role type fit (20%), domain relevance (10%).
-No explanation. No punctuation. Just the number.`;
-
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'user', content: prompt }],
-      max_tokens: 10,
-    }),
-  });
-
-  if (response.status === 401) throw new Error('Invalid API key (401)');
-  if (response.status === 429) throw new Error('Rate limited — try again later');
-  if (!response.ok) throw new Error(`OpenRouter error ${response.status}`);
-
-  const data = await response.json();
-  if (!data.choices?.length) return null;
-
-  const result = parseInt(data.choices[0].message.content.trim(), 10);
-  if (isNaN(result) || result < 1 || result > 100) return null;
-  return result;
-}
-
-// ── Score All Jobs ────────────────────────────────────────────────────────────
-
-let abortScoring = false;
-
 function initScoreAll() {
   const scoreAllBtn = document.getElementById('scoreAllBtn');
-  const stopBtn     = document.getElementById('stopBtn');
-  const progressText = document.getElementById('progressText');
-  const progressFill = document.getElementById('progressFill');
-
-  stopBtn.addEventListener('click', () => {
-    abortScoring = true;
-    stopBtn.disabled = true;
-    stopBtn.textContent = 'Stopping…';
-  });
 
   scoreAllBtn.addEventListener('click', async () => {
-    abortScoring = false;
-
     const sync = await loadSyncSettings();
 
-    if (!sync.candidateProfile || !sync.candidateProfile.trim()) {
+    if (!sync.candidateProfile?.trim()) {
       setProgressVisible(true);
-      progressText.textContent = 'Please upload your resume in Settings first.';
+      document.getElementById('progressText').textContent = 'Please upload your resume in Settings first.';
       setTimeout(() => setProgressVisible(false), 3000);
       return;
     }
 
-    if (!sync.openrouterKey || !sync.openrouterKey.trim()) {
+    if (!sync.openrouterKey?.trim()) {
       setProgressVisible(true);
-      progressText.textContent = 'Please set your OpenRouter API key in Settings.';
+      document.getElementById('progressText').textContent = 'Please set your OpenRouter API key in Settings.';
       setTimeout(() => setProgressVisible(false), 3000);
       return;
     }
 
-    const apiKey   = sync.openrouterKey;
-    const model    = sync.selectedModel || 'deepseek/deepseek-v4-flash';
-    const candidateProfile = sync.candidateProfile;
-
-    const allJobs   = await loadJobs();
-    const unscored  = allJobs.filter(j => typeof j.fit_score !== 'number');
-    console.log(`[score] ${allJobs.length - unscored.length} already scored, ${unscored.length} to process`);
-
-    if (unscored.length === 0) {
-      setProgressVisible(true);
-      progressText.textContent = 'All jobs already scored.';
-      setTimeout(() => setProgressVisible(false), 3000);
-      return;
-    }
-
-    setProgressVisible(true);
+    progressMode = 'scoring';
     scoreAllBtn.disabled = true;
+    const stopBtn = document.getElementById('stopBtn');
     stopBtn.disabled = false;
     stopBtn.textContent = 'Stop';
-    progressFill.style.width = '0%';
-    progressText.textContent = 'Starting scoring…';
+    setProgressVisible(true);
+    document.getElementById('progressFill').style.width = '0%';
+    document.getElementById('progressText').textContent = 'Starting scoring…';
 
-    const total = unscored.length;
-    let failed = 0;
-
-    for (let i = 0; i < total; i++) {
-      if (abortScoring) break;
-
-      const job = unscored[i];
-      progressText.textContent = `Scoring job ${i + 1} of ${total}…`;
-      progressFill.style.width = `${(i / total) * 100}%`;
-
-      console.log(`[score] ${i + 1}/${total} "${job.title}" @ "${job.company}"`);
-      try {
-        const score = await scoreJob(job, candidateProfile, apiKey, model);
-        console.log(`[score] → ${score}`);
-        job.fit_score = score;
-
-        // Persist only when we have a real score
-        if (typeof score === 'number') {
-          const stored = await loadJobs();
-          const idx = stored.findIndex(j => j.url === job.url);
-          if (idx !== -1) {
-            stored[idx].fit_score = score;
-            await saveJobs(stored);
-          }
-        }
-      } catch (err) {
-        // 401 = invalid API key — abort immediately, no point retrying
-        if (err.message.includes('401')) {
-          progressText.textContent = err.message;
-          scoreAllBtn.disabled = false;
-          stopBtn.disabled = true;
-          render();
-          return;
-        }
-        // Rate limit / network error — log and continue
-        console.warn(`Score failed for "${job.title}" @ "${job.company}": ${err.message}`);
-        failed++;
-      }
-
-      await render();
-    }
-
-    progressFill.style.width = '100%';
-    const baseMsg = abortScoring ? 'Scoring stopped.' : 'Scoring complete.';
-    progressText.textContent = failed > 0 ? `${baseMsg} ${failed} job(s) failed.` : baseMsg;
-    setTimeout(() => {
-      setProgressVisible(false);
-      render();
-    }, 3000);
-    scoreAllBtn.disabled = false;
-    stopBtn.disabled = true;
+    chrome.runtime.sendMessage({
+      action: 'scoreAll',
+      candidateProfile: sync.candidateProfile,
+      apiKey: sync.openrouterKey,
+      model: sync.selectedModel || 'deepseek/deepseek-v4-flash',
+    });
   });
 }
 
@@ -755,12 +665,43 @@ function initScoreAll() {
 document.addEventListener('DOMContentLoaded', async () => {
   pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('pdf.worker.min.js');
 
+  initTheme();
   initSettingsToggle();
+  initStopBtn();
   initTrackAll();
   initScoreAll();
   await loadGeneratedResumes();
   await render();
   await loadSettingsUI();
+
+  // Restore in-progress state if background was already running when popup opened
+  chrome.storage.local.get(['scoringState', 'trackingState'], ({ scoringState, trackingState }) => {
+    if (scoringState?.status === 'running') applyScoringState(scoringState);
+    if (trackingState?.status === 'running') applyTrackingState(trackingState);
+  });
+
+  // Re-render when background updates state
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    if (changes.generatedResumes) {
+      const obj = changes.generatedResumes.newValue || {};
+      Object.entries(obj).forEach(([url, content]) => generatedResumes.set(url, content));
+    }
+    if (changes.resumeGenerations) {
+      resumeGenerations = changes.resumeGenerations.newValue || {};
+    }
+    if (changes.trackedJobs) render();
+    if (changes.scoringState?.newValue) applyScoringState(changes.scoringState.newValue);
+    if (changes.trackingState?.newValue) applyTrackingState(changes.trackingState.newValue);
+    if (changes.generatedResumes || changes.resumeGenerations) render();
+  });
+
+  document.getElementById('resetResumesBtn').addEventListener('click', async () => {
+    if (!confirm('Clear all generated resumes? You can regenerate them anytime.')) return;
+    await chrome.storage.local.remove('generatedResumes');
+    generatedResumes.clear();
+    render();
+  });
 
   document.getElementById('exportBtn').addEventListener('click', exportXlsx);
   document.getElementById('clearBtn').addEventListener('click', async () => {
@@ -830,7 +771,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       else if (isDocx) text = await extractDocxText(file);
       else             text = await extractPdfText(file);
       const format    = isTex ? 'tex' : isDocx ? 'docx' : 'pdf';
-      const truncated = text.slice(0, isTex ? 8000 : 4000);
+      const truncated = text.slice(0, isTex ? 20000 : 4000);
       await saveLocalResumeData({ resumeText: truncated, resumeFormat: format, resumeFilename: file.name });
       statusEl.innerHTML = '';
       statusEl.textContent = `✓ File loaded (${format}). Click Generate Profile to continue.`;
