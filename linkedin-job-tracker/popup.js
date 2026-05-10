@@ -761,7 +761,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       else if (isDocx) text = await extractDocxText(file);
       else             text = await extractPdfText(file);
       const format    = isTex ? 'tex' : isDocx ? 'docx' : 'pdf';
-      const truncated = text.slice(0, isTex ? 8000 : 4000);
+      const truncated = text.slice(0, isTex ? 20000 : 4000);
       await saveLocalResumeData({ resumeText: truncated, resumeFormat: format, resumeFilename: file.name });
       statusEl.innerHTML = '';
       statusEl.textContent = `✓ File loaded (${format}). Click Generate Profile to continue.`;

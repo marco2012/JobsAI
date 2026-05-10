@@ -123,7 +123,7 @@ ${resumeText}
 JOB DESCRIPTION:
 ${job.description || ''}`,
       }],
-      max_tokens: isTex ? 4000 : 2000,
+      max_tokens: isTex ? 16000 : 4000,
     }),
   });
 
@@ -134,10 +134,13 @@ ${job.description || ''}`,
   const data = await response.json();
   const choice = data.choices?.[0];
   if (!data.choices?.length) throw new Error('No response from model');
+  if (choice.finish_reason === 'length') {
+    throw new Error('Output was cut off — the model hit its token limit. Try a model with higher output capacity.');
+  }
   const msg = choice.message;
   const content = msg.content ?? msg.reasoning_content ?? msg.reasoning ?? '';
   if (!content.trim()) throw new Error('Model returned empty content');
-  console.log(`[resume] Done — ${content.trim().length} chars`);
+  console.log(`[resume] Done — ${content.trim().length} chars, finish_reason=${choice.finish_reason}`);
   return content.trim();
 }
 
