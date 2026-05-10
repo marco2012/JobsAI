@@ -66,7 +66,16 @@ async function render(page) {
   }
 
   // Newest first
-  jobs.sort((a, b) => new Date(b.dateAdded) - new Date(a.dateAdded));
+  const hasAnyScore = jobs.some(j => typeof j.fit_score === 'number');
+  if (hasAnyScore) {
+    jobs.sort((a, b) => {
+      const sa = typeof a.fit_score === 'number' ? a.fit_score : -1;
+      const sb = typeof b.fit_score === 'number' ? b.fit_score : -1;
+      return sb - sa;
+    });
+  } else {
+    jobs.sort((a, b) => new Date(b.dateAdded) - new Date(a.dateAdded));
+  }
 
   const totalPages = Math.ceil(jobs.length / PAGE_SIZE);
   // Clamp currentPage after a removal may reduce total pages
