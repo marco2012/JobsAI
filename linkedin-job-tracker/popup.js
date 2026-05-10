@@ -136,6 +136,11 @@ async function render(page) {
 
 async function buildXlsxBuffer() {
   const jobs = await loadJobs();
+  jobs.sort((a, b) => {
+    const sa = a.fit_score != null ? a.fit_score : -Infinity;
+    const sb = b.fit_score != null ? b.fit_score : -Infinity;
+    return sb - sa;
+  });
   const rows = jobs.map(j => ({
     'Role':        j.title       || '',
     'Company':     j.company     || '',
@@ -145,8 +150,9 @@ async function buildXlsxBuffer() {
     'Saved':       j.dateAdded ? new Date(j.dateAdded).toISOString().slice(0, 19).replace('T', ' ') : '',
     'Job Link':    j.url         || '',
     'Description': j.description || '',
+    'Fit Score':   j.fit_score != null ? j.fit_score : '',
   }));
-  const ws = XLSX.utils.json_to_sheet(rows, { header: ['Role', 'Company', 'Location', 'Posted', 'Applicants', 'Saved', 'Job Link', 'Description'] });
+  const ws = XLSX.utils.json_to_sheet(rows, { header: ['Role', 'Company', 'Location', 'Posted', 'Applicants', 'Saved', 'Job Link', 'Description', 'Fit Score'] });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Jobs');
   return XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
