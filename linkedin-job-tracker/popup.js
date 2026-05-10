@@ -523,6 +523,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('resumeUpload').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    document.getElementById('fileInputText').textContent = file.name;
     const statusEl = document.getElementById('uploadStatus');
     if (!file.name.toLowerCase().endsWith('.pdf')) {
       statusEl.textContent = 'Please upload a PDF file.';

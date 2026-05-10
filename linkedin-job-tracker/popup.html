@@ -16,7 +16,7 @@
       --primary-fg:   #fafafa;
       --destructive:  #ef4444;
       --success:      #16a34a;
-      --radius:       0.45rem;
+      --radius:       0.375rem;
       --ring:         #18181b;
     }
 
@@ -73,13 +73,14 @@
       align-items: center;
       justify-content: center;
       gap: 6px;
-      padding: 7px 14px;
+      height: 34px;
+      padding: 0 14px;
       border-radius: var(--radius);
       font-size: 13px;
       font-weight: 500;
       cursor: pointer;
       border: 1px solid transparent;
-      transition: opacity 0.15s, background 0.15s, color 0.15s;
+      transition: opacity 0.15s, background 0.15s, color 0.15s, box-shadow 0.15s;
       white-space: nowrap;
       font-family: inherit;
     }
@@ -87,6 +88,7 @@
       background: var(--primary);
       color: var(--primary-fg);
       border-color: var(--primary);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.08);
     }
     .btn-primary:hover:not(:disabled) { opacity: 0.88; }
     .btn-primary:disabled { opacity: 0.45; cursor: default; }
@@ -104,16 +106,21 @@
     .btn-ghost:disabled { opacity: 0.45; cursor: default; }
 
     .btn-sm {
-      padding: 5px 10px;
+      height: 30px;
+      padding: 0 12px;
       font-size: 12px;
     }
 
     /* ── Action bar ─────────────────────────────────────── */
     .action-bar {
-      padding: 12px 16px;
+      padding: 10px 16px;
       display: flex;
-      flex-wrap: nowrap;
-      gap: 8px;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .action-row {
+      display: flex;
+      gap: 6px;
     }
 
     .btn-outline {
@@ -219,7 +226,6 @@
       align-items: center;
       justify-content: center;
       line-height: 1;
-      title: 'Description saved';
     }
     .desc-missing {
       flex-shrink: 0;
@@ -288,47 +294,139 @@
     .empty-title { font-size: 14px; font-weight: 500; color: var(--fg); margin-bottom: 6px; }
     .empty-desc  { font-size: 12px; line-height: 1.65; }
 
-    /* ── Settings ───────────────────────────────────────── */
+    /* ── Settings — shadcn component styles ─────────────── */
     .settings {
       padding: 16px;
       display: flex;
       flex-direction: column;
-      gap: 18px;
+      gap: 14px;
     }
 
-    .field { display: flex; flex-direction: column; gap: 5px; }
+    /* Section separator with label */
+    .settings-section {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .settings-section span {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--muted-fg);
+      white-space: nowrap;
+    }
+    .settings-section hr {
+      flex: 1;
+      border: none;
+      border-top: 1px solid var(--border);
+    }
 
+    /* Field */
+    .field { display: flex; flex-direction: column; gap: 4px; }
+
+    /* shadcn Label */
     .field-label {
       font-size: 13px;
       font-weight: 500;
+      line-height: 1;
+      color: var(--fg);
     }
+
+    /* shadcn description / muted text */
     .field-hint {
       font-size: 11.5px;
       color: var(--muted-fg);
-      line-height: 1.55;
+      line-height: 1.5;
     }
 
+    /* shadcn Input / Textarea base */
     .field-input {
       width: 100%;
-      padding: 8px 10px;
+      height: 36px;
+      padding: 0 12px;
       border: 1px solid var(--input);
       border-radius: var(--radius);
       font-size: 13px;
-      font-family: 'SF Mono', 'Consolas', 'Menlo', monospace;
+      font-family: inherit;
       color: var(--fg);
       background: var(--bg);
       outline: none;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04);
       transition: border-color 0.15s, box-shadow 0.15s;
     }
+    .field-input::placeholder { color: var(--muted-fg); }
     .field-input:focus {
       border-color: var(--ring);
-      box-shadow: 0 0 0 2px rgba(24,24,27,0.07);
+      box-shadow: 0 0 0 3px rgba(24,24,27,0.09);
     }
 
+    /* Password input — monospace */
+    input[type="password"].field-input {
+      font-family: 'SF Mono', 'Consolas', 'Menlo', monospace;
+      letter-spacing: 0.05em;
+    }
+
+    /* shadcn Select — hide native arrow, inject custom chevron */
+    select.field-input {
+      appearance: none;
+      -webkit-appearance: none;
+      padding-right: 32px;
+      cursor: pointer;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+    }
+
+    /* shadcn Textarea */
+    textarea.field-input {
+      height: auto;
+      padding: 8px 12px;
+      resize: vertical;
+      line-height: 1.5;
+    }
+
+    /* Custom file input trigger */
+    .file-input-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 36px;
+      padding: 0 12px;
+      border: 1px dashed var(--border);
+      border-radius: var(--radius);
+      font-size: 13px;
+      font-family: inherit;
+      color: var(--muted-fg);
+      background: var(--bg);
+      cursor: pointer;
+      transition: border-color 0.15s, color 0.15s, background 0.15s;
+      user-select: none;
+      overflow: hidden;
+    }
+    .file-input-btn:hover {
+      border-color: var(--fg);
+      border-style: solid;
+      color: var(--fg);
+      background: var(--muted);
+    }
+    .file-input-btn svg { flex-shrink: 0; }
+    .file-input-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* Upload status */
+    .upload-status {
+      font-size: 11.5px;
+      color: var(--muted-fg);
+      min-height: 16px;
+    }
+
+    /* Settings footer */
     .settings-footer {
       display: flex;
       align-items: center;
       gap: 10px;
+      padding-top: 2px;
     }
     .save-ok {
       font-size: 12px;
@@ -338,7 +436,7 @@
     }
     .save-ok.show { opacity: 1; }
 
-    /* ── Score badges ───────────────────────────────────────── */
+    /* ── Score badges ───────────────────────────────────── */
     .score-badge {
       display: inline-flex;
       align-items: center;
@@ -353,7 +451,7 @@
     .score-red    { background: #fee2e2; color: #b91c1c; }
     .score-grey   { background: var(--muted); color: var(--muted-fg); }
 
-    /* pager */
+    /* ── Pager ──────────────────────────────────────────── */
     .pager {
       display: flex;
       align-items: center;
@@ -399,34 +497,40 @@
   <!-- Jobs view -->
   <div id="view-jobs">
     <div class="action-bar">
-      <button class="btn btn-primary" id="exportBtn" disabled style="flex:2">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-          <polyline points="7 10 12 15 17 10"/>
-          <line x1="12" y1="15" x2="12" y2="3"/>
-        </svg>
-        Export jobs.xlsx
-      </button>
-      <button class="btn btn-outline" id="scoreAllBtn" disabled style="flex:2">
-        ⭐ Score All
-      </button>
-      <button class="btn btn-outline" id="trackAllBtn" disabled style="flex:2">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
-        </svg>
-        Track All Visible
-      </button>
-      <button class="icon-btn" id="clearBtn" title="Clear all" style="color:var(--destructive);flex-shrink:0;width:34px;height:34px;border:1px solid var(--border)">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="3 6 5 6 21 6"/>
-          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-          <path d="M10 11v6M14 11v6"/>
-          <path d="M9 6V4h6v2"/>
-        </svg>
-      </button>
+      <!-- Row 1: Export (full width) -->
+      <div class="action-row">
+        <button class="btn btn-primary" id="exportBtn" disabled style="flex:1">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Export jobs.xlsx
+        </button>
+      </div>
+      <!-- Row 2: Score All + Track All + Clear -->
+      <div class="action-row">
+        <button class="btn btn-outline" id="scoreAllBtn" disabled style="flex:1">
+          ⭐ Score All
+        </button>
+        <button class="btn btn-outline" id="trackAllBtn" disabled style="flex:1">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+          </svg>
+          Track All
+        </button>
+        <button class="icon-btn" id="clearBtn" title="Clear all" style="color:var(--destructive);flex-shrink:0;width:34px;height:34px;border:1px solid var(--border)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+            <path d="M10 11v6M14 11v6"/>
+            <path d="M9 6V4h6v2"/>
+          </svg>
+        </button>
+      </div>
     </div>
 
-    <!-- Progress (shown during Track All) -->
+    <!-- Progress (shown during Track All / Score All) -->
     <div class="progress-section" id="progressSection" style="display:none">
       <div class="progress-bar-wrap">
         <div class="progress-bar-fill" id="progressFill"></div>
@@ -445,11 +549,16 @@
   <div id="view-settings" style="display:none">
     <div class="settings">
 
+      <!-- OpenRouter section -->
+      <div class="settings-section">
+        <span>OpenRouter</span><hr>
+      </div>
+
       <div class="field">
-        <label class="field-label" for="openrouterKey">OpenRouter API Key</label>
-        <p class="field-hint">Your OpenRouter API key. Get one at openrouter.ai</p>
+        <label class="field-label" for="openrouterKey">API Key</label>
+        <p class="field-hint">Get a free key at openrouter.ai</p>
         <input class="field-input" id="openrouterKey" type="password"
-               spellcheck="false" autocomplete="off" />
+               placeholder="sk-or-…" spellcheck="false" autocomplete="off" />
       </div>
 
       <div class="field">
@@ -461,19 +570,31 @@
         </select>
       </div>
 
+      <!-- Resume section -->
+      <div class="settings-section" style="margin-top:6px">
+        <span>Resume</span><hr>
+      </div>
+
       <div class="field">
-        <label class="field-label" for="resumeUpload">Resume (PDF)</label>
-        <p class="field-hint">Upload your resume to generate a candidate profile for job scoring.</p>
-        <input type="file" accept=".pdf" id="resumeUpload" class="field-input" style="padding: 6px 10px; cursor: pointer;" />
-        <span id="uploadStatus" style="font-size:11.5px; color: var(--muted-fg); margin-top: 4px;"></span>
+        <label class="field-label">Resume PDF</label>
+        <p class="field-hint">Extracts text and generates your candidate profile via the selected model.</p>
+        <label class="file-input-btn" for="resumeUpload">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          <span id="fileInputText">Choose PDF file…</span>
+        </label>
+        <input type="file" accept=".pdf" id="resumeUpload" style="position:absolute;opacity:0;width:0;height:0;">
+        <p class="upload-status" id="uploadStatus"></p>
       </div>
 
       <div class="field">
         <label class="field-label" for="candidateProfileArea">Candidate Profile</label>
-        <p class="field-hint">Auto-generated from your resume. You can edit it manually and save.</p>
+        <p class="field-hint">Auto-generated from your resume. Edit and save to customise.</p>
         <textarea id="candidateProfileArea" class="field-input" rows="6"
-          placeholder="Upload your resume above to generate a profile…"
-          style="resize: vertical; font-family: inherit; line-height: 1.5;"></textarea>
+          placeholder="Upload your resume above to generate a profile…"></textarea>
       </div>
 
       <div class="settings-footer">
