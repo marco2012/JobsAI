@@ -43,14 +43,17 @@ let currentPage = 0;
 async function render(page) {
   if (page !== undefined) currentPage = page;
 
-  const jobs      = await loadJobs();
+  const [jobs, sync] = await Promise.all([loadJobs(), loadSyncSettings()]);
   const subtitle  = document.getElementById('subtitle');
   const list      = document.getElementById('jobList');
   const exportBtn = document.getElementById('exportBtn');
 
+  const hasProfile = !!(sync.candidateProfile && sync.candidateProfile.trim());
   subtitle.textContent = `${jobs.length} job${jobs.length !== 1 ? 's' : ''} tracked`;
   exportBtn.disabled   = jobs.length === 0;
-  document.getElementById('scoreAllBtn').disabled = jobs.length === 0;
+  const scoreAllBtn = document.getElementById('scoreAllBtn');
+  scoreAllBtn.disabled = jobs.length === 0 || !hasProfile;
+  scoreAllBtn.title    = !hasProfile ? 'Upload your resume in Settings first' : '';
 
   if (jobs.length === 0) {
     list.innerHTML = `
@@ -247,6 +250,7 @@ async function saveSettingsUI() {
   const profile = document.getElementById('candidateProfileArea').value.trim();
   await saveSyncSettings({ openrouterKey, selectedModel, candidateProfile: profile });
   flashSaved();
+  render();
 }
 
 function flashSaved() {
@@ -552,6 +556,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       statusEl.innerHTML = '';
       statusEl.textContent = '✓ Profile generated and saved.';
       statusEl.style.color = 'var(--success)';
+      render();
     } catch (err) {
       statusEl.innerHTML = '';
       statusEl.textContent = `Error: ${err.message}`;
