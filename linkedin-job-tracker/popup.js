@@ -93,7 +93,7 @@ async function render(page) {
     </div>`;
 
   list.innerHTML = pageJobs.map((job, i) => {
-    const chips = [job.location, job.postedDate].filter(Boolean)
+    const chips = [job.location].filter(Boolean)
       .map(c => `<span class="chip">${esc(c)}</span>`).join('');
     const hasDesc = job.description && job.description.trim().length > 30;
     const descBadge = hasDesc
