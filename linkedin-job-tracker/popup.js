@@ -1,6 +1,7 @@
 // ── Resume cache + in-progress generation state ───────────────────────────────
 const generatedResumes = new Map();
 let resumeGenerations = {}; // { [url]: { status: 'pending'|'error', error?, startedAt } }
+let progressMode = null; // 'scoring' | 'tracking' | null
 
 function loadGeneratedResumes() {
   return new Promise(r => chrome.storage.local.get(['generatedResumes', 'resumeGenerations'], d => {
@@ -461,29 +462,86 @@ function initSettingsToggle() {
   });
 }
 
-// ── Track All Visible ────────────────────────────────────────────────────────
+// ── Track All / Score All progress UI ────────────────────────────────────────
 
 function setProgressVisible(on) {
   document.getElementById('progressSection').style.display = on ? '' : 'none';
 }
 
-function updateProgress(done, total, skipped, failed) {
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-  document.getElementById('progressFill').style.width = `${pct}%`;
-  const newCount = done - skipped - failed;
-  const parts = [`${newCount} tracked`];
-  if (skipped) parts.push(`${skipped} already tracked`);
-  if (failed)  parts.push(`${failed} failed`);
-  document.getElementById('progressText').textContent =
-    `${done} / ${total} — ${parts.join(', ')}`;
+function initStopBtn() {
+  document.getElementById('stopBtn').addEventListener('click', () => {
+    const stopBtn = document.getElementById('stopBtn');
+    stopBtn.disabled = true;
+    stopBtn.textContent = 'Stopping…';
+    if (progressMode === 'tracking') chrome.runtime.sendMessage({ action: 'stopTracking' });
+    else if (progressMode === 'scoring') chrome.runtime.sendMessage({ action: 'stopScoring' });
+  });
+}
+
+function applyScoringState(state) {
+  const scoreAllBtn  = document.getElementById('scoreAllBtn');
+  const stopBtn      = document.getElementById('stopBtn');
+  const progressFill = document.getElementById('progressFill');
+  const progressText = document.getElementById('progressText');
+
+  if (state.status === 'running') {
+    progressMode = 'scoring';
+    setProgressVisible(true);
+    scoreAllBtn.disabled = true;
+    stopBtn.disabled = false;
+    stopBtn.textContent = 'Stop';
+    const pct = state.total > 0 ? ((state.current - 1) / state.total) * 100 : 0;
+    progressFill.style.width = `${pct}%`;
+    progressText.textContent = state.message;
+  } else if (progressMode === 'scoring') {
+    progressFill.style.width = '100%';
+    progressText.textContent = state.message;
+    scoreAllBtn.disabled = false;
+    stopBtn.disabled = true;
+    progressMode = null;
+    render();
+    setTimeout(() => setProgressVisible(false), 3000);
+  }
+}
+
+function applyTrackingState(state) {
+  const trackAllBtn  = document.getElementById('trackAllBtn');
+  const stopBtn      = document.getElementById('stopBtn');
+  const progressFill = document.getElementById('progressFill');
+  const progressText = document.getElementById('progressText');
+
+  if (state.status === 'running') {
+    progressMode = 'tracking';
+    setProgressVisible(true);
+    trackAllBtn.disabled = true;
+    stopBtn.disabled = false;
+    stopBtn.textContent = 'Stop';
+    if (state.total > 0) {
+      const pct = Math.round((state.done / state.total) * 100);
+      progressFill.style.width = `${pct}%`;
+      const newCount = state.done - (state.skipped || 0) - (state.failed || 0);
+      const parts = [`${newCount} tracked`];
+      if (state.skipped) parts.push(`${state.skipped} already tracked`);
+      if (state.failed)  parts.push(`${state.failed} failed`);
+      progressText.textContent = `${state.done} / ${state.total} — ${parts.join(', ')}`;
+    } else {
+      progressText.textContent = state.message || 'Starting…';
+    }
+    render();
+  } else if (progressMode === 'tracking') {
+    progressFill.style.width = '100%';
+    progressText.textContent = state.message;
+    trackAllBtn.disabled = false;
+    stopBtn.disabled = true;
+    progressMode = null;
+    render();
+    setTimeout(() => setProgressVisible(false), 3000);
+  }
 }
 
 function initTrackAll() {
-  const btn     = document.getElementById('trackAllBtn');
-  const stopBtn = document.getElementById('stopBtn');
-  let activePort = null;
+  const btn = document.getElementById('trackAllBtn');
 
-  // Enable button only when on a LinkedIn jobs page
   chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
     const url = tabs[0]?.url || '';
     const onJobsPage = /linkedin\.com\/jobs\/(search|collections)/.test(url);
@@ -491,214 +549,58 @@ function initTrackAll() {
     if (!onJobsPage) btn.title = 'Open a LinkedIn jobs search page first';
   });
 
-  stopBtn.addEventListener('click', () => {
-    if (activePort) {
-      activePort.postMessage({ action: 'stop' });
-      stopBtn.disabled = true;
-      stopBtn.textContent = 'Stopping…';
-    }
-  });
-
   btn.addEventListener('click', () => {
-    btn.disabled = true;
-    stopBtn.disabled = false;
-    stopBtn.textContent = 'Stop';
-    setProgressVisible(true);
-    document.getElementById('progressFill').style.width = '0%';
-    document.getElementById('progressText').textContent = 'Starting…';
-
     chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
-      const port = chrome.tabs.connect(tabs[0].id, { name: 'ljt-track-all' });
-      activePort = port;
-
-      function finish() {
-        btn.disabled = false;
-        stopBtn.disabled = true;
-        activePort = null;
-        render();
-      }
-
-      port.onMessage.addListener(msg => {
-        if (msg.type === 'progress') {
-          updateProgress(msg.done, msg.total, msg.skipped, msg.failed);
-          render();
-        } else if (msg.type === 'done') {
-          updateProgress(msg.total, msg.total, msg.skipped, msg.failed);
-          document.getElementById('progressText').textContent =
-            `Done! ${msg.done} new, ${msg.skipped} already tracked${msg.failed ? `, ${msg.failed} failed` : ''}`;
-          notify('Track All complete', `${msg.done} new job${msg.done !== 1 ? 's' : ''} tracked`);
-          finish();
-        } else if (msg.type === 'stopped') {
-          document.getElementById('progressFill').style.width = '100%';
-          document.getElementById('progressText').textContent =
-            `Stopped — ${msg.done} new, ${msg.skipped} already tracked${msg.failed ? `, ${msg.failed} failed` : ''}`;
-          finish();
-        } else if (msg.type === 'error') {
-          document.getElementById('progressText').textContent = `Error: ${msg.message}`;
-          finish();
-        }
-      });
-
-      port.onDisconnect.addListener(() => {
-        activePort = null;
-        btn.disabled = false;
-        stopBtn.disabled = true;
-      });
-
-      port.postMessage({ action: 'trackAllVisible' });
+      const tabId = tabs[0]?.id;
+      if (!tabId) return;
+      progressMode = 'tracking';
+      btn.disabled = true;
+      const stopBtn = document.getElementById('stopBtn');
+      stopBtn.disabled = false;
+      stopBtn.textContent = 'Stop';
+      setProgressVisible(true);
+      document.getElementById('progressFill').style.width = '0%';
+      document.getElementById('progressText').textContent = 'Starting…';
+      chrome.runtime.sendMessage({ action: 'trackAll', tabId });
     });
   });
 }
 
-// ── Score job ────────────────────────────────────────────────────────────────
-
-async function scoreJob(job, candidateProfile, apiKey, model) {
-  const prompt = `You are a job-fit evaluator. Score how well this candidate fits this job.
-
-CANDIDATE PROFILE:
-${candidateProfile}
-
-JOB DESCRIPTION:
-${job.description || 'No description available.'}
-
-Respond with ONLY a single integer between 1 and 100.
-Score based on: skills match (40%), experience alignment (30%), role type fit (20%), domain relevance (10%).
-No explanation. No punctuation. Just the number.`;
-
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'user', content: prompt }],
-      max_tokens: 10,
-    }),
-  });
-
-  if (response.status === 401) throw new Error('Invalid API key (401)');
-  if (response.status === 429) throw new Error('Rate limited — try again later');
-  if (!response.ok) throw new Error(`OpenRouter error ${response.status}`);
-
-  const data = await response.json();
-  if (!data.choices?.length) return null;
-
-  const result = parseInt(data.choices[0].message.content.trim(), 10);
-  if (isNaN(result) || result < 1 || result > 100) return null;
-  return result;
-}
-
-// ── Score All Jobs ────────────────────────────────────────────────────────────
-
-let abortScoring = false;
-
 function initScoreAll() {
   const scoreAllBtn = document.getElementById('scoreAllBtn');
-  const stopBtn     = document.getElementById('stopBtn');
-  const progressText = document.getElementById('progressText');
-  const progressFill = document.getElementById('progressFill');
-
-  stopBtn.addEventListener('click', () => {
-    abortScoring = true;
-    stopBtn.disabled = true;
-    stopBtn.textContent = 'Stopping…';
-  });
 
   scoreAllBtn.addEventListener('click', async () => {
-    abortScoring = false;
-
     const sync = await loadSyncSettings();
 
-    if (!sync.candidateProfile || !sync.candidateProfile.trim()) {
+    if (!sync.candidateProfile?.trim()) {
       setProgressVisible(true);
-      progressText.textContent = 'Please upload your resume in Settings first.';
+      document.getElementById('progressText').textContent = 'Please upload your resume in Settings first.';
       setTimeout(() => setProgressVisible(false), 3000);
       return;
     }
 
-    if (!sync.openrouterKey || !sync.openrouterKey.trim()) {
+    if (!sync.openrouterKey?.trim()) {
       setProgressVisible(true);
-      progressText.textContent = 'Please set your OpenRouter API key in Settings.';
+      document.getElementById('progressText').textContent = 'Please set your OpenRouter API key in Settings.';
       setTimeout(() => setProgressVisible(false), 3000);
       return;
     }
 
-    const apiKey   = sync.openrouterKey;
-    const model    = sync.selectedModel || 'deepseek/deepseek-v4-flash';
-    const candidateProfile = sync.candidateProfile;
-
-    const allJobs   = await loadJobs();
-    const unscored  = allJobs.filter(j => typeof j.fit_score !== 'number');
-    console.log(`[score] ${allJobs.length - unscored.length} already scored, ${unscored.length} to process`);
-
-    if (unscored.length === 0) {
-      setProgressVisible(true);
-      progressText.textContent = 'All jobs already scored.';
-      setTimeout(() => setProgressVisible(false), 3000);
-      return;
-    }
-
-    setProgressVisible(true);
+    progressMode = 'scoring';
     scoreAllBtn.disabled = true;
+    const stopBtn = document.getElementById('stopBtn');
     stopBtn.disabled = false;
     stopBtn.textContent = 'Stop';
-    progressFill.style.width = '0%';
-    progressText.textContent = 'Starting scoring…';
+    setProgressVisible(true);
+    document.getElementById('progressFill').style.width = '0%';
+    document.getElementById('progressText').textContent = 'Starting scoring…';
 
-    const total = unscored.length;
-    let failed = 0;
-
-    for (let i = 0; i < total; i++) {
-      if (abortScoring) break;
-
-      const job = unscored[i];
-      progressText.textContent = `Scoring job ${i + 1} of ${total}…`;
-      progressFill.style.width = `${(i / total) * 100}%`;
-
-      console.log(`[score] ${i + 1}/${total} "${job.title}" @ "${job.company}"`);
-      try {
-        const score = await scoreJob(job, candidateProfile, apiKey, model);
-        console.log(`[score] → ${score}`);
-        job.fit_score = score;
-
-        // Persist only when we have a real score
-        if (typeof score === 'number') {
-          const stored = await loadJobs();
-          const idx = stored.findIndex(j => j.url === job.url);
-          if (idx !== -1) {
-            stored[idx].fit_score = score;
-            await saveJobs(stored);
-          }
-        }
-      } catch (err) {
-        // 401 = invalid API key — abort immediately, no point retrying
-        if (err.message.includes('401')) {
-          progressText.textContent = err.message;
-          scoreAllBtn.disabled = false;
-          stopBtn.disabled = true;
-          render();
-          return;
-        }
-        // Rate limit / network error — log and continue
-        console.warn(`Score failed for "${job.title}" @ "${job.company}": ${err.message}`);
-        failed++;
-      }
-
-      await render();
-    }
-
-    progressFill.style.width = '100%';
-    const baseMsg = abortScoring ? 'Scoring stopped.' : 'Scoring complete.';
-    progressText.textContent = failed > 0 ? `${baseMsg} ${failed} job(s) failed.` : baseMsg;
-    if (!abortScoring) notify('Scoring complete', failed > 0 ? `${failed} job(s) failed` : `All jobs scored`);
-    setTimeout(() => {
-      setProgressVisible(false);
-      render();
-    }, 3000);
-    scoreAllBtn.disabled = false;
-    stopBtn.disabled = true;
+    chrome.runtime.sendMessage({
+      action: 'scoreAll',
+      candidateProfile: sync.candidateProfile,
+      apiKey: sync.openrouterKey,
+      model: sync.selectedModel || 'deepseek/deepseek-v4-flash',
+    });
   });
 }
 
@@ -708,13 +610,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('pdf.worker.min.js');
 
   initSettingsToggle();
+  initStopBtn();
   initTrackAll();
   initScoreAll();
   await loadGeneratedResumes();
   await render();
   await loadSettingsUI();
 
-  // Re-render when background updates generation state
+  // Restore in-progress state if background was already running when popup opened
+  chrome.storage.local.get(['scoringState', 'trackingState'], ({ scoringState, trackingState }) => {
+    if (scoringState?.status === 'running') applyScoringState(scoringState);
+    if (trackingState?.status === 'running') applyTrackingState(trackingState);
+  });
+
+  // Re-render when background updates state
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
     if (changes.generatedResumes) {
@@ -724,6 +633,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (changes.resumeGenerations) {
       resumeGenerations = changes.resumeGenerations.newValue || {};
     }
+    if (changes.trackedJobs) render();
+    if (changes.scoringState?.newValue) applyScoringState(changes.scoringState.newValue);
+    if (changes.trackingState?.newValue) applyTrackingState(changes.trackingState.newValue);
     if (changes.generatedResumes || changes.resumeGenerations) render();
   });
 
