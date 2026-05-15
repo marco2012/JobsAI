@@ -34,7 +34,7 @@ function saveSettings(s) {
   return new Promise(r => chrome.storage.local.set({ settings: s }, r));
 }
 function loadSyncSettings() {
-  return new Promise(r => chrome.storage.sync.get(['openrouterKey', 'selectedModel', 'candidateProfile'], d => r(d)));
+  return new Promise(r => chrome.storage.sync.get(['openrouterKey', 'geminiKey', 'selectedModel', 'candidateProfile'], d => r(d)));
 }
 function loadLocalResumeData() {
   return new Promise(r => chrome.storage.local.get(['resumeText', 'resumeFormat', 'resumeFilename'], d => r(d)));
@@ -212,11 +212,12 @@ async function render(page) {
       }
 
       // Dispatch generation to background service worker
-      const [s, local] = await Promise.all([loadSyncSettings(), loadLocalResumeData()]);
+      const local = await loadLocalResumeData();
       if (!local.resumeText) {
         btn.title = 'Re-upload your resume in Settings to enable this';
         return;
       }
+      const live = getLiveSettings();
       const format = local.resumeFormat || 'pdf';
       // Optimistically mark as pending so spinner shows immediately
       resumeGenerations[job.url] = { status: 'pending', startedAt: Date.now() };
@@ -227,8 +228,9 @@ async function render(page) {
         jobUrl: job.url,
         job,
         resumeText: local.resumeText,
-        apiKey: s.openrouterKey,
-        model: s.selectedModel || 'deepseek/deepseek-v4-flash',
+        apiKey: live.openrouterKey,
+        geminiKey: live.geminiKey,
+        model: live.selectedModel || 'gemini-2.5-flash',
         format,
       });
       await render();
@@ -326,37 +328,60 @@ async function extractDocxText(file) {
   return result.value;
 }
 
-async function generateCandidateProfile(resumeText, apiKey, model) {
+function resolveApi(model, openrouterKey, geminiKey) {
+  const isGemini = !model.includes('/');
+  return {
+    url: isGemini
+      ? 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'
+      : 'https://openrouter.ai/api/v1/chat/completions',
+    key: isGemini ? geminiKey : openrouterKey,
+    provider: isGemini ? 'Google AI Studio' : 'OpenRouter',
+  };
+}
+
+async function generateCandidateProfile(resumeText, openrouterKey, geminiKey, model) {
   console.log('[profile] model:', model, '| resume chars:', resumeText.length);
 
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+  const { url, key, provider } = resolveApi(model, openrouterKey, geminiKey);
+  if (!key) throw new Error(`${provider} API key is not set`);
+
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${apiKey}`,
+      'Authorization': `Bearer ${key}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
       model,
       messages: [{
         role: 'user',
-        content: `You are a resume parser. From the resume text provided, extract a concise candidate profile:
-- Top 10 technical and soft skills
-- Total years of professional experience
-- Role types the candidate has held (e.g. "Senior Software Engineer", "Product Manager")
-- Full tech stack mentioned
-Output ONLY a plain-text summary. Maximum 200 words. No bullet symbols, no markdown. Do not include any labels or headings.
+        content: `You are a senior technical recruiter building a candidate brief used for job-fit scoring.
+
+Extract the following from the resume and write them as flowing plain text:
+
+1. Seniority and experience: total years of work experience and current level (e.g. "8 years, senior individual contributor with team-lead experience")
+2. Primary roles: job titles held, most recent first
+3. Technical skills: top 12 tools, languages, platforms, and frameworks — include years of use and context where evident (e.g. "Python 6 yrs used for production ML pipelines", "Salesforce CRM 4 yrs enterprise deployments")
+4. Domains and industries: sectors, verticals, and problem spaces worked in (e.g. "enterprise SaaS, fintech, data infrastructure, professional services")
+5. Top 3 achievements: concrete and quantified — include numbers, percentages, revenue, scale, or time saved
+6. Education and certifications: degrees, institutions, and any notable certifications
+
+Rules:
+- Be specific: use tool names, numbers, and context — vague statements like "strong communicator" are useless
+- Plain text only — no markdown, no bullet points, no section headers, no labels
+- 220–280 words
 
 Resume:
 ${resumeText}`,
       }],
-      max_tokens: 1000,
+      max_tokens: 1200,
     }),
   });
 
   console.log('[profile] HTTP status:', response.status);
   if (response.status === 401) throw new Error('Invalid API key (401)');
   if (response.status === 429) throw new Error('Rate limited (429) — try again later');
-  if (!response.ok) throw new Error(`OpenRouter error ${response.status}`);
+  if (!response.ok) throw new Error(`${provider} error ${response.status}`);
 
   const data = await response.json();
   const choice = data.choices?.[0];
@@ -450,10 +475,55 @@ async function downloadResume(content, job, format) {
 
 // ── Settings ─────────────────────────────────────────────────────────────────
 
+function switchProviderTab(provider) {
+  document.querySelectorAll('.provider-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.tab === provider);
+  });
+  document.getElementById('panelGemini').style.display    = provider === 'gemini'      ? '' : 'none';
+  document.getElementById('panelOpenRouter').style.display = provider === 'openrouter' ? '' : 'none';
+}
+
+function persistSelectedModel() {
+  chrome.storage.sync.set({ selectedModel: getSelectedModel() });
+}
+
+function initProviderTabs() {
+  document.querySelectorAll('.provider-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      switchProviderTab(tab.dataset.tab);
+      persistSelectedModel();
+    });
+  });
+  document.getElementById('modelSelectGemini').addEventListener('change', persistSelectedModel);
+  document.getElementById('modelSelectOR').addEventListener('change', persistSelectedModel);
+}
+
+function getSelectedModel() {
+  const active = document.querySelector('.provider-tab.active')?.dataset.tab;
+  return active === 'openrouter'
+    ? document.getElementById('modelSelectOR').value
+    : document.getElementById('modelSelectGemini').value;
+}
+
+// Read current keys + model directly from DOM (no storage round-trip needed)
+function getLiveSettings() {
+  return {
+    selectedModel:   getSelectedModel(),
+    openrouterKey:   document.getElementById('openrouterKey')?.value.trim()        || '',
+    geminiKey:       document.getElementById('geminiKey')?.value.trim()             || '',
+    candidateProfile: document.getElementById('candidateProfileArea')?.value.trim() || '',
+  };
+}
+
 async function loadSettingsUI() {
   const [sync, local] = await Promise.all([loadSyncSettings(), loadLocalResumeData()]);
   document.getElementById('openrouterKey').value = sync.openrouterKey || '';
-  document.getElementById('modelSelect').value = sync.selectedModel || 'deepseek/deepseek-v4-flash';
+  document.getElementById('geminiKey').value = sync.geminiKey || '';
+  const model = sync.selectedModel || 'gemini-2.5-flash';
+  const isGemini = !model.includes('/');
+  switchProviderTab(isGemini ? 'gemini' : 'openrouter');
+  if (isGemini) document.getElementById('modelSelectGemini').value = model;
+  else          document.getElementById('modelSelectOR').value = model;
   document.getElementById('candidateProfileArea').value = sync.candidateProfile || '';
   if (local.resumeFilename) {
     document.getElementById('fileInputText').textContent = local.resumeFilename;
@@ -463,9 +533,10 @@ async function loadSettingsUI() {
 
 async function saveSettingsUI() {
   const openrouterKey = document.getElementById('openrouterKey').value.trim();
-  const selectedModel = document.getElementById('modelSelect').value;
+  const geminiKey = document.getElementById('geminiKey').value.trim();
+  const selectedModel = getSelectedModel();
   const profile = document.getElementById('candidateProfileArea').value.trim();
-  await saveSyncSettings({ openrouterKey, selectedModel, candidateProfile: profile });
+  await saveSyncSettings({ openrouterKey, geminiKey, selectedModel, candidateProfile: profile });
   flashSaved();
   render();
 }
@@ -598,15 +669,17 @@ function applyTrackingState(state) {
 function initTrackAll() {
   const btn = document.getElementById('trackAllBtn');
 
-  chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+  // lastFocusedWindow is required in popup context — currentWindow resolves to the
+  // popup's own window which has no tabs, leaving the button permanently disabled.
+  chrome.tabs.query({ active: true, lastFocusedWindow: true }, tabs => {
     const url = tabs[0]?.url || '';
-    const onJobsPage = /linkedin\.com\/jobs\/(search|collections)/.test(url);
+    const onJobsPage = /linkedin\.com\/jobs\//.test(url);
     btn.disabled = !onJobsPage;
-    if (!onJobsPage) btn.title = 'Open a LinkedIn jobs search page first';
+    if (!onJobsPage) btn.title = 'Open a LinkedIn jobs page first';
   });
 
   btn.addEventListener('click', () => {
-    chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+    chrome.tabs.query({ active: true, lastFocusedWindow: true }, tabs => {
       const tabId = tabs[0]?.id;
       if (!tabId) return;
       progressMode = 'tracking';
@@ -626,18 +699,23 @@ function initScoreAll() {
   const scoreAllBtn = document.getElementById('scoreAllBtn');
 
   scoreAllBtn.addEventListener('click', async () => {
+    const live = getLiveSettings();
+    // candidateProfile lives in storage; fall back if the textarea is empty (settings not opened yet)
     const sync = await loadSyncSettings();
+    const candidateProfile = live.candidateProfile || sync.candidateProfile || '';
 
-    if (!sync.candidateProfile?.trim()) {
+    if (!candidateProfile.trim()) {
       setProgressVisible(true);
       document.getElementById('progressText').textContent = 'Please upload your resume in Settings first.';
       setTimeout(() => setProgressVisible(false), 3000);
       return;
     }
 
-    if (!sync.openrouterKey?.trim()) {
+    const scoreModel = live.selectedModel || 'gemini-2.5-flash';
+    const { key: scoreKey, provider: scoreProvider } = resolveApi(scoreModel, live.openrouterKey, live.geminiKey);
+    if (!scoreKey?.trim()) {
       setProgressVisible(true);
-      document.getElementById('progressText').textContent = 'Please set your OpenRouter API key in Settings.';
+      document.getElementById('progressText').textContent = `Please set your ${scoreProvider} API key in Settings.`;
       setTimeout(() => setProgressVisible(false), 3000);
       return;
     }
@@ -653,9 +731,10 @@ function initScoreAll() {
 
     chrome.runtime.sendMessage({
       action: 'scoreAll',
-      candidateProfile: sync.candidateProfile,
-      apiKey: sync.openrouterKey,
-      model: sync.selectedModel || 'deepseek/deepseek-v4-flash',
+      candidateProfile,
+      apiKey: live.openrouterKey,
+      geminiKey: live.geminiKey,
+      model: scoreModel,
     });
   });
 }
@@ -667,6 +746,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   initTheme();
   initSettingsToggle();
+  initProviderTabs();
   initStopBtn();
   initTrackAll();
   initScoreAll();
@@ -674,10 +754,22 @@ document.addEventListener('DOMContentLoaded', async () => {
   await render();
   await loadSettingsUI();
 
-  // Restore in-progress state if background was already running when popup opened
+  // Restore in-progress state only if the background SW is provably still running.
+  // A ping with no reply means the SW was killed — reset stale 'running' state so
+  // the Track All button isn't left permanently disabled.
   chrome.storage.local.get(['scoringState', 'trackingState'], ({ scoringState, trackingState }) => {
-    if (scoringState?.status === 'running') applyScoringState(scoringState);
-    if (trackingState?.status === 'running') applyTrackingState(trackingState);
+    let replied = false;
+    chrome.runtime.sendMessage({ action: 'ping' }, () => {
+      replied = true;
+      if (scoringState?.status  === 'running') applyScoringState(scoringState);
+      if (trackingState?.status === 'running') applyTrackingState(trackingState);
+    });
+    // If no reply within 400 ms the SW is dead — clear stale running states
+    setTimeout(() => {
+      if (replied) return;
+      if (scoringState?.status  === 'running') chrome.storage.local.set({ scoringState:  { status: 'idle', message: '' } });
+      if (trackingState?.status === 'running') chrome.storage.local.set({ trackingState: { status: 'idle', message: '' } });
+    }, 400);
   });
 
   // Re-render when background updates state
@@ -715,10 +807,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     const btn = document.getElementById('genProfileBtn');
     const statusEl = document.getElementById('uploadStatus');
     const spinner = '<span class="spinner"></span>';
-    const [sync, local] = await Promise.all([loadSyncSettings(), loadLocalResumeData()]);
+    const [live, local] = await Promise.all([Promise.resolve(getLiveSettings()), loadLocalResumeData()]);
     if (!local.resumeText) return;
-    if (!sync.openrouterKey) {
-      statusEl.textContent = 'Please set your OpenRouter API key first.';
+    const selModel = live.selectedModel || 'gemini-2.5-flash';
+    const { key: activeKey, provider } = resolveApi(selModel, live.openrouterKey, live.geminiKey);
+    if (!activeKey) {
+      statusEl.textContent = `Please set your ${provider} API key first.`;
       statusEl.style.color = 'var(--destructive)';
       return;
     }
@@ -726,7 +820,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     statusEl.style.color = 'var(--muted-fg)';
     statusEl.innerHTML = `${spinner}Generating candidate profile…`;
     try {
-      const profile = await generateCandidateProfile(local.resumeText, sync.openrouterKey, sync.selectedModel || 'deepseek/deepseek-v4-flash');
+      const profile = await generateCandidateProfile(local.resumeText, live.openrouterKey, live.geminiKey, selModel);
       document.getElementById('candidateProfileArea').value = profile;
       await saveSyncSettings({ candidateProfile: profile });
       statusEl.innerHTML = '';
@@ -755,9 +849,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       statusEl.style.color = 'var(--destructive)';
       return;
     }
-    const settings = await loadSyncSettings();
-    if (!settings.openrouterKey) {
-      statusEl.textContent = 'Please set your OpenRouter API key first.';
+    const liveUp = getLiveSettings();
+    const _selModel = liveUp.selectedModel || 'gemini-2.5-flash';
+    const { key: _activeKey, provider: _provider } = resolveApi(_selModel, liveUp.openrouterKey, liveUp.geminiKey);
+    if (!_activeKey) {
+      statusEl.textContent = `Please set your ${_provider} API key first.`;
       statusEl.style.color = 'var(--destructive)';
       return;
     }
