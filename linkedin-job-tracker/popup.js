@@ -496,6 +496,10 @@ function initProviderTabs() {
   });
   document.getElementById('modelSelectGemini').addEventListener('change', persistSelectedModel);
   document.getElementById('modelSelectOR').addEventListener('change', persistSelectedModel);
+  document.getElementById('geminiKey').addEventListener('blur', () =>
+    chrome.storage.sync.set({ geminiKey: document.getElementById('geminiKey').value.trim() }));
+  document.getElementById('openrouterKey').addEventListener('blur', () =>
+    chrome.storage.sync.set({ openrouterKey: document.getElementById('openrouterKey').value.trim() }));
 }
 
 function getSelectedModel() {
@@ -673,9 +677,9 @@ function initTrackAll() {
   // popup's own window which has no tabs, leaving the button permanently disabled.
   chrome.tabs.query({ active: true, lastFocusedWindow: true }, tabs => {
     const url = tabs[0]?.url || '';
-    const onJobsPage = /linkedin\.com\/jobs\//.test(url);
+    const onJobsPage = /linkedin\.com\/jobs\//.test(url) || /linkedin\.com\/jobs-tracker/.test(url);
     btn.disabled = !onJobsPage;
-    if (!onJobsPage) btn.title = 'Open a LinkedIn jobs page first';
+    if (!onJobsPage) btn.title = 'Open a LinkedIn jobs or saved-jobs page first';
   });
 
   btn.addEventListener('click', () => {

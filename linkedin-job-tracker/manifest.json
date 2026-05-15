@@ -14,7 +14,9 @@
     {
       "matches": [
         "https://www.linkedin.com/jobs/*",
-        "https://linkedin.com/jobs/*"
+        "https://linkedin.com/jobs/*",
+        "https://www.linkedin.com/jobs-tracker/",
+        "https://linkedin.com/jobs-tracker/"
       ],
       "js": ["content.js"],
       "css": ["content.css"],
