@@ -4,6 +4,15 @@ let scoringAbort = false;
 let trackingPort = null;
 const activeGenerations = new Map(); // jobUrl → AbortController
 
+// Clear any 'running' state left over from a previous SW instance that was killed
+// mid-operation. Runs every time the SW starts (restarts lose all in-memory state).
+chrome.storage.local.get(['scoringState', 'trackingState'], ({ scoringState, trackingState }) => {
+  const updates = {};
+  if (scoringState?.status  === 'running') updates.scoringState  = { status: 'idle', message: 'Interrupted — extension restarted' };
+  if (trackingState?.status === 'running') updates.trackingState = { status: 'idle', message: '' };
+  if (Object.keys(updates).length) chrome.storage.local.set(updates);
+});
+
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.get('trackedJobs', ({ trackedJobs }) => {
     if (!trackedJobs) chrome.storage.local.set({ trackedJobs: [] });
@@ -13,6 +22,9 @@ chrome.runtime.onInstalled.addListener(() => {
 // ── Message router ────────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.action === 'ping') {
+    sendResponse({ alive: true });
+  }
   if (msg.action === 'generateResume') {
     handleGenerate(msg).catch(console.error);
     sendResponse({ queued: true });
@@ -62,14 +74,22 @@ function saveJobs(jobs) {
   return new Promise(r => chrome.storage.local.set({ trackedJobs: jobs }, r));
 }
 
+// ── API routing ───────────────────────────────────────────────────────────────
+
+function resolveApiKey(model, apiKey, geminiKey) {
+  return model.includes('/')
+    ? { url: 'https://openrouter.ai/api/v1/chat/completions', key: apiKey }
+    : { url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', key: geminiKey };
+}
+
 // ── Resume generation (survives popup close) ──────────────────────────────────
 
-async function handleGenerate({ jobUrl, job, resumeText, apiKey, model, format }) {
+async function handleGenerate({ jobUrl, job, resumeText, apiKey, geminiKey, model, format }) {
   const controller = new AbortController();
   activeGenerations.set(jobUrl, controller);
 
   try {
-    const content = await fetchResume(job, resumeText, apiKey, model, format, controller.signal);
+    const content = await fetchResume(job, resumeText, apiKey, geminiKey, model, format, controller.signal);
     const { generatedResumes = {}, resumeGenerations = {} } =
       await chrome.storage.local.get(['generatedResumes', 'resumeGenerations']);
     generatedResumes[jobUrl] = content;
@@ -97,7 +117,7 @@ async function handleGenerate({ jobUrl, job, resumeText, apiKey, model, format }
   }
 }
 
-async function fetchResume(job, resumeText, apiKey, model, format, userSignal) {
+async function fetchResume(job, resumeText, apiKey, geminiKey, model, format, userSignal) {
   // Combine user-cancel signal with a native timeout (setTimeout is unreliable in SW)
   const signal = AbortSignal.any([userSignal, AbortSignal.timeout(300_000)]);
   const isTex = format === 'tex';
@@ -115,11 +135,12 @@ async function fetchResume(job, resumeText, apiKey, model, format, userSignal) {
   - **bold** for company names, key metrics, and technologies
   - Start directly with # Name`;
 
+  const { url, key } = resolveApiKey(model, apiKey, geminiKey);
   console.log(`[resume] Generating for model=${model} format=${format}`);
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+  const response = await fetch(url, {
     method: 'POST',
     signal,
-    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model,
       messages: [{
@@ -146,9 +167,15 @@ ${job.description || ''}`,
     }),
   });
 
-  if (response.status === 401) throw new Error('Invalid API key (401)');
-  if (response.status === 429) throw new Error('Rate limited — try again later');
-  if (!response.ok) throw new Error(`OpenRouter error ${response.status}`);
+  if (!response.ok) {
+    let detail = '';
+    try { const e = await response.json(); detail = e.error?.message || JSON.stringify(e); } catch {}
+    const msg = response.status === 401 ? 'Invalid API key (401)'
+      : response.status === 429 ? 'Rate limited — try again later'
+      : `API error ${response.status}${detail ? ': ' + detail : ''}`;
+    console.error(`[resume] ${msg}`);
+    throw new Error(msg);
+  }
 
   const data = await response.json();
   const choice = data.choices?.[0];
@@ -165,7 +192,7 @@ ${job.description || ''}`,
 
 // ── Score All (survives popup close) ─────────────────────────────────────────
 
-async function handleScoreAll({ candidateProfile, apiKey, model }) {
+async function handleScoreAll({ candidateProfile, apiKey, geminiKey, model }) {
   scoringAbort = false;
   const jobs = await loadJobs();
   const unscored = jobs.filter(j => typeof j.fit_score !== 'number');
@@ -181,15 +208,16 @@ async function handleScoreAll({ candidateProfile, apiKey, model }) {
   });
 
   let failed = 0;
+  let lastError = '';
   for (let i = 0; i < total; i++) {
     if (scoringAbort) break;
     const job = unscored[i];
     await chrome.storage.local.set({
-      scoringState: { status: 'running', current: i + 1, total, failed, message: `Scoring job ${i + 1} of ${total}…` },
+      scoringState: { status: 'running', current: i + 1, total, failed, message: `Scoring ${i + 1} / ${total}…` },
     });
 
     try {
-      const score = await scoreJob(job, candidateProfile, apiKey, model);
+      const score = await scoreJob(job, candidateProfile, apiKey, geminiKey, model);
       if (typeof score === 'number') {
         const stored = await loadJobs();
         const idx = stored.findIndex(j => j.url === job.url);
@@ -199,26 +227,30 @@ async function handleScoreAll({ candidateProfile, apiKey, model }) {
         }
       }
     } catch (err) {
-      if (err.message.includes('401')) {
+      lastError = err.message;
+      // Stop immediately on auth or rate-limit errors — retrying won't help
+      if (err.message.includes('401') || err.message.includes('429')) {
         await chrome.storage.local.set({
-          scoringState: { status: 'idle', current: i + 1, total, failed, message: err.message },
+          scoringState: { status: 'idle', current: i + 1, total, failed, message: `Stopped: ${err.message}` },
         });
         return;
       }
+      console.error(`[score] job "${job.title}" @ "${job.company}" failed:`, err.message);
       failed++;
     }
   }
 
   const aborted = scoringAbort;
   const baseMsg = aborted ? 'Scoring stopped.' : 'Scoring complete.';
-  const finalMsg = failed > 0 ? `${baseMsg} ${failed} job(s) failed.` : baseMsg;
+  const failNote = failed > 0 ? ` ${failed} job(s) failed — last error: ${lastError}` : '';
+  const finalMsg = `${baseMsg}${failNote}`;
   await chrome.storage.local.set({
     scoringState: { status: 'idle', current: total, total, failed, message: finalMsg, aborted },
   });
-  if (!aborted) notify('Scoring complete', failed > 0 ? `${failed} job(s) failed` : 'All jobs scored');
+  if (!aborted) notify('Scoring complete', failed > 0 ? `${failed} failed — ${lastError}` : 'All jobs scored');
 }
 
-async function scoreJob(job, candidateProfile, apiKey, model) {
+async function scoreJob(job, candidateProfile, apiKey, geminiKey, model) {
   const prompt = `You are a job-fit evaluator. Score how well this candidate fits this job.
 
 CANDIDATE PROFILE:
@@ -231,9 +263,11 @@ Respond with ONLY a single integer between 1 and 100.
 Score based on: skills match (40%), experience alignment (30%), role type fit (20%), domain relevance (10%).
 No explanation. No punctuation. Just the number.`;
 
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+  const { url, key } = resolveApiKey(model, apiKey, geminiKey);
+  console.log(`[score] model=${model} url=${url}`);
+  const response = await fetch(url, {
     method: 'POST',
-    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model,
       messages: [{ role: 'user', content: prompt }],
@@ -241,9 +275,13 @@ No explanation. No punctuation. Just the number.`;
     }),
   });
 
-  if (response.status === 401) throw new Error('Invalid API key (401)');
-  if (response.status === 429) throw new Error('Rate limited — try again later');
-  if (!response.ok) throw new Error(`OpenRouter error ${response.status}`);
+  if (!response.ok) {
+    let detail = '';
+    try { const e = await response.json(); detail = e.error?.message || JSON.stringify(e); } catch {}
+    const msg = `API error ${response.status}${detail ? ': ' + detail : ''}`;
+    console.error(`[score] ${msg}`);
+    throw new Error(msg);
+  }
 
   const data = await response.json();
   if (!data.choices?.length) return null;
@@ -262,40 +300,53 @@ async function handleTrackAll({ tabId }) {
     return;
   }
 
+  // Attach listeners inside try/catch — port properties throw if the content
+  // script context was invalidated (e.g. extension just reloaded without a tab refresh).
+  try {
+    trackingPort.onMessage.addListener(async msg => {
+      if (msg.type === 'progress') {
+        await chrome.storage.local.set({
+          trackingState: { status: 'running', done: msg.done, total: msg.total, skipped: msg.skipped, failed: msg.failed, message: '' },
+        });
+      } else if (msg.type === 'done') {
+        const text = `Done! ${msg.done} new, ${msg.skipped} already tracked${msg.failed ? `, ${msg.failed} failed` : ''}`;
+        await chrome.storage.local.set({
+          trackingState: { status: 'idle', done: msg.done, total: msg.total, skipped: msg.skipped, failed: msg.failed, message: text },
+        });
+        notify('Track All complete', `${msg.done} new job${msg.done !== 1 ? 's' : ''} tracked`);
+        trackingPort = null;
+      } else if (msg.type === 'stopped') {
+        const text = `Stopped — ${msg.done} new, ${msg.skipped} already tracked${msg.failed ? `, ${msg.failed} failed` : ''}`;
+        await chrome.storage.local.set({
+          trackingState: { status: 'idle', done: msg.done, total: msg.total, skipped: msg.skipped, failed: msg.failed, message: text },
+        });
+        trackingPort = null;
+      } else if (msg.type === 'error') {
+        await chrome.storage.local.set({ trackingState: { status: 'idle', message: `Error: ${msg.message}` } });
+        trackingPort = null;
+      }
+    });
+
+    trackingPort.onDisconnect.addListener(async () => {
+      const connErr = chrome.runtime.lastError;
+      trackingPort = null;
+      const message = connErr
+        ? (connErr.message?.includes('Receiving end does not exist') || connErr.message?.includes('invalidated')
+            ? 'Refresh the LinkedIn tab, then try again'
+            : `Error: ${connErr.message}`)
+        : '';
+      await chrome.storage.local.set({ trackingState: { status: 'idle', message } });
+    });
+  } catch (err) {
+    trackingPort = null;
+    await chrome.storage.local.set({ trackingState: { status: 'idle', message: 'Refresh the LinkedIn tab, then try again' } });
+    return;
+  }
+
   await chrome.storage.local.set({
     trackingState: { status: 'running', done: 0, total: 0, skipped: 0, failed: 0, message: 'Starting…' },
   });
 
-  trackingPort.onMessage.addListener(async msg => {
-    if (msg.type === 'progress') {
-      await chrome.storage.local.set({
-        trackingState: { status: 'running', done: msg.done, total: msg.total, skipped: msg.skipped, failed: msg.failed, message: '' },
-      });
-    } else if (msg.type === 'done') {
-      const text = `Done! ${msg.done} new, ${msg.skipped} already tracked${msg.failed ? `, ${msg.failed} failed` : ''}`;
-      await chrome.storage.local.set({
-        trackingState: { status: 'idle', done: msg.done, total: msg.total, skipped: msg.skipped, failed: msg.failed, message: text },
-      });
-      notify('Track All complete', `${msg.done} new job${msg.done !== 1 ? 's' : ''} tracked`);
-      trackingPort = null;
-    } else if (msg.type === 'stopped') {
-      const text = `Stopped — ${msg.done} new, ${msg.skipped} already tracked${msg.failed ? `, ${msg.failed} failed` : ''}`;
-      await chrome.storage.local.set({
-        trackingState: { status: 'idle', done: msg.done, total: msg.total, skipped: msg.skipped, failed: msg.failed, message: text },
-      });
-      trackingPort = null;
-    } else if (msg.type === 'error') {
-      await chrome.storage.local.set({ trackingState: { status: 'idle', message: `Error: ${msg.message}` } });
-      trackingPort = null;
-    }
-  });
-
-  trackingPort.onDisconnect.addListener(async () => {
-    if (trackingPort) {
-      trackingPort = null;
-      await chrome.storage.local.set({ trackingState: { status: 'idle', message: '' } });
-    }
-  });
-
   trackingPort.postMessage({ action: 'trackAllVisible' });
 }
+

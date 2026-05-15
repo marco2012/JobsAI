@@ -11,13 +11,19 @@ function getDetailPanel() {
   const cols = document.querySelectorAll('[data-testid="lazy-column"]');
   if (cols[1]) return cols[1];
   // Recommended/single-pane pages
-  return document.querySelector('.jobs-details__main-content') || null;
+  const standard = document.querySelector('.jobs-details__main-content');
+  if (standard) return standard;
+  // Full job view pages (/jobs/view/): whole body is the content
+  if (location.pathname.match(/\/jobs\/view\/\d+/)) return document.body;
+  return null;
 }
 
 // --- Job ID ---
 
 function getJobIdFromUrl() {
-  return new URLSearchParams(location.search).get('currentJobId') || null;
+  return new URLSearchParams(location.search).get('currentJobId')
+    || location.pathname.match(/\/jobs\/view\/(\d+)/)?.[1]
+    || null;
 }
 
 // --- Job info from detail panel ---
@@ -234,6 +240,16 @@ function processPage() {
 // --- Track All Visible ---
 
 function getJobCards() {
+  // Jobs-tracker saved-jobs page: one unique anchor per job
+  if (location.pathname.startsWith('/jobs-tracker')) {
+    const seen = new Set();
+    return Array.from(document.querySelectorAll('a[href*="/jobs/view/"]')).filter(a => {
+      const m = a.href.match(/\/jobs\/view\/(\d+)/);
+      if (!m || seen.has(m[1])) return false;
+      seen.add(m[1]);
+      return true;
+    });
+  }
   // Search/collections pages use lazy-column; recommended/collections pages use scaffold-layout__list
   const leftCol = document.querySelectorAll('[data-testid="lazy-column"]')[0]
     || document.querySelector('.scaffold-layout__list');
@@ -256,7 +272,9 @@ async function waitForPanelJob(previousJobId, timeout = 6000) {
     const jobId = getJobIdFromUrl();
     if (jobId && jobId !== previousJobId) {
       const panel = getDetailPanel();
-      if (panel && findSaveButton(panel)) return { jobId, panel };
+      // On full view pages the whole body is the panel — no Save button check needed
+      const isViewPage = !!location.pathname.match(/\/jobs\/view\/\d+/);
+      if (panel && (isViewPage || findSaveButton(panel))) return { jobId, panel };
     }
     await sleep(150);
   }
@@ -279,11 +297,18 @@ async function waitForDescription(timeout = 8000) {
 }
 
 async function trackAllVisible(port, isStopped) {
+  const isTrackerPage = location.pathname.startsWith('/jobs-tracker');
   const cards = getJobCards();
+
   if (!cards.length) {
     port.postMessage({ type: 'error', message: 'No job cards found on this page.' });
     return;
   }
+
+  // Pre-collect job URLs for jobs-tracker so we can navigate after the original DOM changes
+  const preUrls = isTrackerPage
+    ? cards.map(a => { const u = a.href.split('?')[0]; return u.endsWith('/') ? u : u + '/'; })
+    : null;
 
   let done = 0, skipped = 0, failed = 0;
   const total = cards.length;
@@ -292,15 +317,17 @@ async function trackAllVisible(port, isStopped) {
 
   port.postMessage({ type: 'progress', done, total, skipped, failed });
 
-  for (const card of cards) {
+  for (let i = 0; i < total; i++) {
     if (aborted) break;
     if (isStopped()) {
       port.postMessage({ type: 'stopped', done: done - skipped - failed, skipped, failed, total });
       return;
     }
     try {
-      // Pre-check: if card exposes its job ID (standard search pages), skip click entirely
-      const preId = card.dataset?.occludableJobId;
+      // Pre-check: skip already-tracked jobs without clicking
+      const preId = isTrackerPage
+        ? preUrls[i].match(/\/jobs\/view\/(\d+)/)?.[1]
+        : cards[i].dataset?.occludableJobId;
       if (preId && await isTracked(preId)) {
         skipped++; done++;
         port.postMessage({ type: 'progress', done, total, skipped, failed });
@@ -308,9 +335,22 @@ async function trackAllVisible(port, isStopped) {
       }
 
       const prevJobId = getJobIdFromUrl();
-      // On recommended/collections pages the card is an <li>; clicking it doesn't
-      // trigger LinkedIn's SPA handler — the inner <a> must be clicked instead.
-      (card.querySelector('a[href*="/jobs/view/"]') || card).click();
+
+      if (isTrackerPage) {
+        // Click the original anchor if still in DOM; otherwise create a temporary one
+        if (document.body.contains(cards[i])) {
+          cards[i].click();
+        } else {
+          const tempA = document.createElement('a');
+          tempA.href = preUrls[i];
+          document.body.appendChild(tempA);
+          tempA.click();
+          tempA.remove();
+        }
+      } else {
+        // On recommended/collections pages the card is an <li>; the inner <a> must be clicked
+        (cards[i].querySelector('a[href*="/jobs/view/"]') || cards[i]).click();
+      }
 
       const result = await waitForPanelJob(prevJobId);
       if (!result) { failed++; done++; port.postMessage({ type: 'progress', done, total, skipped, failed }); continue; }
