@@ -34,7 +34,7 @@ function saveSettings(s) {
   return new Promise(r => chrome.storage.local.set({ settings: s }, r));
 }
 function loadSyncSettings() {
-  return new Promise(r => chrome.storage.sync.get(['openrouterKey', 'geminiKey', 'selectedModel', 'candidateProfile'], d => r(d)));
+  return new Promise(r => chrome.storage.sync.get(['openrouterKey', 'geminiKey', 'selectedModel', 'scoringModel', 'candidateProfile'], d => r(d)));
 }
 function loadLocalResumeData() {
   return new Promise(r => chrome.storage.local.get(['resumeText', 'resumeFormat', 'resumeFilename'], d => r(d)));
@@ -488,19 +488,28 @@ function switchProviderTab(provider) {
   document.getElementById('panelOpenRouter').style.display = provider === 'openrouter' ? '' : 'none';
 }
 
-function persistSelectedModel() {
-  chrome.storage.sync.set({ selectedModel: getSelectedModel() });
+function getScoringModel() {
+  const active = document.querySelector('.provider-tab.active')?.dataset.tab;
+  return active === 'openrouter'
+    ? document.getElementById('scoringModelSelectOR').value
+    : document.getElementById('scoringModelSelectGemini').value;
+}
+
+function persistModels() {
+  chrome.storage.sync.set({ selectedModel: getSelectedModel(), scoringModel: getScoringModel() });
 }
 
 function initProviderTabs() {
   document.querySelectorAll('.provider-tab').forEach(tab => {
     tab.addEventListener('click', () => {
       switchProviderTab(tab.dataset.tab);
-      persistSelectedModel();
+      persistModels();
     });
   });
-  document.getElementById('modelSelectGemini').addEventListener('change', persistSelectedModel);
-  document.getElementById('modelSelectOR').addEventListener('change', persistSelectedModel);
+  document.getElementById('modelSelectGemini').addEventListener('change', persistModels);
+  document.getElementById('modelSelectOR').addEventListener('change', persistModels);
+  document.getElementById('scoringModelSelectGemini').addEventListener('change', persistModels);
+  document.getElementById('scoringModelSelectOR').addEventListener('change', persistModels);
   document.getElementById('geminiKey').addEventListener('blur', () =>
     chrome.storage.sync.set({ geminiKey: document.getElementById('geminiKey').value.trim() }));
   document.getElementById('openrouterKey').addEventListener('blur', () =>
@@ -528,11 +537,20 @@ async function loadSettingsUI() {
   const [sync, local] = await Promise.all([loadSyncSettings(), loadLocalResumeData()]);
   document.getElementById('openrouterKey').value = sync.openrouterKey || '';
   document.getElementById('geminiKey').value = sync.geminiKey || '';
+
   const model = sync.selectedModel || 'gemini-2.5-flash';
   const isGemini = !model.includes('/');
   switchProviderTab(isGemini ? 'gemini' : 'openrouter');
-  if (isGemini) document.getElementById('modelSelectGemini').value = model;
-  else          document.getElementById('modelSelectOR').value = model;
+  if (isGemini) {
+    document.getElementById('modelSelectGemini').value = model;
+    const sm = sync.scoringModel && !sync.scoringModel.includes('/') ? sync.scoringModel : model;
+    document.getElementById('scoringModelSelectGemini').value = sm;
+  } else {
+    document.getElementById('modelSelectOR').value = model;
+    const sm = sync.scoringModel && sync.scoringModel.includes('/') ? sync.scoringModel : model;
+    document.getElementById('scoringModelSelectOR').value = sm;
+  }
+
   document.getElementById('candidateProfileArea').value = sync.candidateProfile || '';
   if (local.resumeFilename) {
     document.getElementById('fileInputText').textContent = local.resumeFilename;
@@ -544,8 +562,9 @@ async function saveSettingsUI() {
   const openrouterKey = document.getElementById('openrouterKey').value.trim();
   const geminiKey = document.getElementById('geminiKey').value.trim();
   const selectedModel = getSelectedModel();
+  const scoringModel = getScoringModel();
   const profile = document.getElementById('candidateProfileArea').value.trim();
-  await saveSyncSettings({ openrouterKey, geminiKey, selectedModel, candidateProfile: profile });
+  await saveSyncSettings({ openrouterKey, geminiKey, selectedModel, scoringModel, candidateProfile: profile });
   flashSaved();
   render();
 }
@@ -720,7 +739,7 @@ function initScoreAll() {
       return;
     }
 
-    const scoreModel = live.selectedModel || 'gemini-2.5-flash';
+    const scoreModel = getScoringModel() || live.selectedModel || 'gemini-2.5-flash';
     const { key: scoreKey, provider: scoreProvider } = resolveApi(scoreModel, live.openrouterKey, live.geminiKey);
     if (!scoreKey?.trim()) {
       setProgressVisible(true);
@@ -741,9 +760,9 @@ function initScoreAll() {
     chrome.runtime.sendMessage({
       action: 'scoreAll',
       candidateProfile,
-      apiKey: live.openrouterKey,
-      geminiKey: live.geminiKey,
-      model: scoreModel,
+      apiKey:     live.openrouterKey,
+      geminiKey:  live.geminiKey,
+      model:      scoreModel,
     });
   });
 }
