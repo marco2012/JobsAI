@@ -84,12 +84,12 @@ function resolveApiKey(model, apiKey, geminiKey) {
 
 // ── Resume generation (survives popup close) ──────────────────────────────────
 
-async function handleGenerate({ jobUrl, job, resumeText, apiKey, geminiKey, model, format }) {
+async function handleGenerate({ jobUrl, job, resumeText, apiKey, geminiKey, model, format, customPrompt }) {
   const controller = new AbortController();
   activeGenerations.set(jobUrl, controller);
 
   try {
-    const content = await fetchResume(job, resumeText, apiKey, geminiKey, model, format, controller.signal);
+    const content = await fetchResume(job, resumeText, apiKey, geminiKey, model, format, controller.signal, customPrompt);
     const { generatedResumes = {}, resumeGenerations = {} } =
       await chrome.storage.local.get(['generatedResumes', 'resumeGenerations']);
     generatedResumes[jobUrl] = content;
@@ -117,7 +117,7 @@ async function handleGenerate({ jobUrl, job, resumeText, apiKey, geminiKey, mode
   }
 }
 
-async function fetchResume(job, resumeText, apiKey, geminiKey, model, format, userSignal) {
+async function fetchResume(job, resumeText, apiKey, geminiKey, model, format, userSignal, customPrompt) {
   // Combine user-cancel signal with a native timeout (setTimeout is unreliable in SW)
   const signal = AbortSignal.any([userSignal, AbortSignal.timeout(300_000)]);
   const isTex = format === 'tex';
@@ -135,6 +135,18 @@ async function fetchResume(job, resumeText, apiKey, geminiKey, model, format, us
   - **bold** for company names, key metrics, and technologies
   - Start directly with # Name`;
 
+  const instructions = customPrompt || `You are a professional resume writer${isTex ? ' specializing in LaTeX' : ''}. Tailor this resume to the job description using the XYZ formula.
+
+Rules:
+- XYZ formula: "Accomplished [X] as measured by [Y] by doing [Z]"
+- Replace weak verbs (helped, assisted, worked on, responsible for) with power verbs (architected, drove, scaled, engineered, launched, owned, spearheaded)
+- Every bullet must have a quantifiable metric (%, $, scale, time saved, users impacted)
+- Reorder bullets to highlight skills matching THIS job first
+- Naturally incorporate the job's keywords into bullet descriptions
+- Cut anything not relevant to this specific role
+- After drafting, review and add any key job requirements that are missing
+- STRICT LENGTH LIMIT: the resume must fit in 1.5 pages maximum — approximately 500 words total. Cut aggressively. Max 4 bullets per role. Omit old or irrelevant roles entirely.`;
+
   const { url, key } = resolveApiKey(model, apiKey, geminiKey);
   console.log(`[resume] Generating for model=${model} format=${format}`);
   const response = await fetch(url, {
@@ -145,16 +157,7 @@ async function fetchResume(job, resumeText, apiKey, geminiKey, model, format, us
       model,
       messages: [{
         role: 'user',
-        content: `You are a professional resume writer${isTex ? ' specializing in LaTeX' : ''}. Tailor this resume to the job description using the XYZ formula.
-
-Rules:
-- XYZ formula: "Accomplished [X] as measured by [Y] by doing [Z]"
-- Replace weak verbs (helped, assisted, worked on, responsible for) with power verbs (architected, drove, scaled, engineered, launched, owned, spearheaded)
-- Every bullet must have a quantifiable metric (%, $, scale, time saved, users impacted)
-- Reorder bullets to highlight skills matching THIS job first
-- Naturally incorporate the job's keywords into bullet descriptions
-- Cut anything not relevant to this specific role
-- After drafting, review and add any key job requirements that are missing
+        content: `${instructions}
 ${formatRules}
 
 ORIGINAL RESUME:

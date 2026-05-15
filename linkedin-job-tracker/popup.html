@@ -743,7 +743,7 @@
           <select class="field-input" id="modelSelectOR">
             <optgroup label="Google">
               <option value="google/gemini-3.0-flash">Gemini 3.0 Flash</option>
-              <option value="google/gemini-3.0-flash-lite">Gemini 3.0 Flash Lite</option>
+              <option value="google/gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
             </optgroup>
             <optgroup label="DeepSeek">
               <option value="deepseek/deepseek-v4-flash">DeepSeek V4 Flash</option>
@@ -763,7 +763,7 @@
           <select class="field-input" id="scoringModelSelectOR">
             <optgroup label="Google">
               <option value="google/gemini-3.0-flash">Gemini 3.0 Flash</option>
-              <option value="google/gemini-3.0-flash-lite">Gemini 3.0 Flash Lite</option>
+              <option value="google/gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
             </optgroup>
             <optgroup label="DeepSeek">
               <option value="deepseek/deepseek-v4-flash">DeepSeek V4 Flash</option>
@@ -806,6 +806,15 @@
         <p class="field-hint">Auto-generated from your resume. Edit and save to customise.</p>
         <textarea id="candidateProfileArea" class="field-input" rows="6"
           placeholder="Upload your resume above to generate a profile…"></textarea>
+      </div>
+
+      <div class="field">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+          <label class="field-label" for="resumePromptArea">Resume Generation Prompt</label>
+          <button class="btn btn-outline btn-sm" id="resetPromptBtn" style="height:26px;padding:0 10px;font-size:11px">Reset to default</button>
+        </div>
+        <p class="field-hint">Instructions sent to the AI when generating tailored resumes. Format-specific rules are appended automatically.</p>
+        <textarea id="resumePromptArea" class="field-input" rows="8" placeholder="Loading…"></textarea>
       </div>
 
       <div class="settings-footer">

@@ -1,3 +1,16 @@
+// ── Default resume generation prompt ─────────────────────────────────────────
+const DEFAULT_RESUME_PROMPT = `You are a professional resume writer. Tailor this resume to the job description using the XYZ formula.
+
+Rules:
+- XYZ formula: "Accomplished [X] as measured by [Y] by doing [Z]"
+- Replace weak verbs (helped, assisted, worked on, responsible for) with power verbs (architected, drove, scaled, engineered, launched, owned, spearheaded)
+- Every bullet must have a quantifiable metric (%, $, scale, time saved, users impacted)
+- Reorder bullets to highlight skills matching THIS job first
+- Naturally incorporate the job's keywords into bullet descriptions
+- Cut anything not relevant to this specific role
+- After drafting, review and add any key job requirements that are missing
+- STRICT LENGTH LIMIT: the resume must fit in 1.5 pages maximum — approximately 500 words total. Cut aggressively. Max 4 bullets per role. Omit old or irrelevant roles entirely.`;
+
 // ── Resume cache + in-progress generation state ───────────────────────────────
 const generatedResumes = new Map();
 let resumeGenerations = {}; // { [url]: { status: 'pending'|'error', error?, startedAt } }
@@ -37,7 +50,7 @@ function loadSyncSettings() {
   return new Promise(r => chrome.storage.sync.get(['openrouterKey', 'geminiKey', 'selectedModel', 'scoringModel', 'candidateProfile'], d => r(d)));
 }
 function loadLocalResumeData() {
-  return new Promise(r => chrome.storage.local.get(['resumeText', 'resumeFormat', 'resumeFilename'], d => r(d)));
+  return new Promise(r => chrome.storage.local.get(['resumeText', 'resumeFormat', 'resumeFilename', 'resumePrompt'], d => r(d)));
 }
 function saveLocalResumeData(obj) {
   return new Promise(r => chrome.storage.local.set(obj, r));
@@ -226,6 +239,7 @@ async function render() {
       resumeGenerations[job.url] = { status: 'pending', startedAt: Date.now() };
       const updatedGens = { ...resumeGenerations };
       chrome.storage.local.set({ resumeGenerations: updatedGens });
+      const customPrompt = local.resumePrompt || DEFAULT_RESUME_PROMPT;
       chrome.runtime.sendMessage({
         action: 'generateResume',
         jobUrl: job.url,
@@ -235,6 +249,7 @@ async function render() {
         geminiKey: live.geminiKey,
         model: live.selectedModel || 'gemini-2.5-flash',
         format,
+        customPrompt,
       });
       await render();
     });
@@ -538,7 +553,7 @@ async function loadSettingsUI() {
   document.getElementById('openrouterKey').value = sync.openrouterKey || '';
   document.getElementById('geminiKey').value = sync.geminiKey || '';
 
-  const model = sync.selectedModel || 'gemini-2.5-flash';
+  const model = sync.selectedModel || 'google/gemini-3.0-flash';
   const isGemini = !model.includes('/');
   switchProviderTab(isGemini ? 'gemini' : 'openrouter');
   if (isGemini) {
@@ -552,6 +567,7 @@ async function loadSettingsUI() {
   }
 
   document.getElementById('candidateProfileArea').value = sync.candidateProfile || '';
+  document.getElementById('resumePromptArea').value = local.resumePrompt || DEFAULT_RESUME_PROMPT;
   if (local.resumeFilename) {
     document.getElementById('fileInputText').textContent = local.resumeFilename;
   }
@@ -564,7 +580,11 @@ async function saveSettingsUI() {
   const selectedModel = getSelectedModel();
   const scoringModel = getScoringModel();
   const profile = document.getElementById('candidateProfileArea').value.trim();
-  await saveSyncSettings({ openrouterKey, geminiKey, selectedModel, scoringModel, candidateProfile: profile });
+  const resumePrompt = document.getElementById('resumePromptArea').value.trim() || DEFAULT_RESUME_PROMPT;
+  await Promise.all([
+    saveSyncSettings({ openrouterKey, geminiKey, selectedModel, scoringModel, candidateProfile: profile }),
+    saveLocalResumeData({ resumePrompt }),
+  ]);
   flashSaved();
   render();
 }
@@ -814,6 +834,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (changes.scoringState?.newValue) applyScoringState(changes.scoringState.newValue);
     if (changes.trackingState?.newValue) applyTrackingState(changes.trackingState.newValue);
     if (changes.generatedResumes || changes.resumeGenerations) render();
+  });
+
+  document.getElementById('resetPromptBtn').addEventListener('click', () => {
+    document.getElementById('resumePromptArea').value = DEFAULT_RESUME_PROMPT;
   });
 
   document.getElementById('resetResumesBtn').addEventListener('click', async () => {

@@ -192,6 +192,8 @@ async function addTrackButton(panel, jobId) {
   const insertAnchor = byLabel ? (saveBtn.parentElement || saveBtn) : saveBtn;
 
   const tracked = await isTracked(jobId);
+  // Re-check after the async gap — a concurrent processPage call may have already inserted the button
+  if (panel.querySelector(`.${BTN_CLASS}`)) return;
   const btn = document.createElement('button');
   btn.className = BTN_CLASS;
   applyState(btn, tracked);
