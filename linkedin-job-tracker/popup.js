@@ -68,25 +68,22 @@ function fmt(iso) {
 
 // ── Render job list (with pagination) ───────────────────────────────────────
 
-const PAGE_SIZE = 5;
-let currentPage = 0;
+let searchQuery = '';
 
-async function render(page) {
-  if (page !== undefined) currentPage = page;
-
+async function render() {
   const [jobs, sync] = await Promise.all([loadJobs(), loadSyncSettings()]);
   const subtitle  = document.getElementById('subtitle');
   const list      = document.getElementById('jobList');
   const exportBtn = document.getElementById('exportBtn');
 
   const hasProfile = !!(sync.candidateProfile && sync.candidateProfile.trim());
-  subtitle.textContent = `${jobs.length} job${jobs.length !== 1 ? 's' : ''} tracked`;
   exportBtn.disabled   = jobs.length === 0;
   const scoreAllBtn = document.getElementById('scoreAllBtn');
   scoreAllBtn.disabled = jobs.length === 0 || !hasProfile;
   scoreAllBtn.title    = !hasProfile ? 'Upload your resume in Settings first' : '';
 
   if (jobs.length === 0) {
+    subtitle.textContent = '0 jobs tracked';
     list.innerHTML = `
       <div class="empty">
         <div class="empty-icon">📋</div>
@@ -96,7 +93,7 @@ async function render(page) {
     return;
   }
 
-  // Newest first
+  // Sort: by score if any scored, otherwise newest first
   const hasAnyScore = jobs.some(j => typeof j.fit_score === 'number');
   if (hasAnyScore) {
     jobs.sort((a, b) => {
@@ -108,20 +105,25 @@ async function render(page) {
     jobs.sort((a, b) => new Date(b.dateAdded) - new Date(a.dateAdded));
   }
 
-  const totalPages = Math.ceil(jobs.length / PAGE_SIZE);
-  // Clamp currentPage after a removal may reduce total pages
-  if (currentPage >= totalPages) currentPage = totalPages - 1;
+  // Filter by search query
+  const q = searchQuery.toLowerCase();
+  const pageJobs = q
+    ? jobs.filter(j => [j.title, j.company, j.location].some(s => (s || '').toLowerCase().includes(q)))
+    : jobs;
 
-  const start    = currentPage * PAGE_SIZE;
-  const pageJobs = jobs.slice(start, start + PAGE_SIZE);
+  if (q) {
+    subtitle.textContent = `${pageJobs.length} of ${jobs.length} job${jobs.length !== 1 ? 's' : ''}`;
+  } else {
+    subtitle.textContent = `${jobs.length} job${jobs.length !== 1 ? 's' : ''} tracked`;
+  }
 
-  const pagerEl = document.getElementById('pager');
-  pagerEl.innerHTML = `
-    <div class="pager">
-      <button class="pager-btn" id="prevBtn" ${currentPage === 0 ? 'disabled' : ''}>‹ Prev</button>
-      <span class="pager-info">${currentPage + 1} / ${totalPages}</span>
-      <button class="pager-btn" id="nextBtn" ${currentPage >= totalPages - 1 ? 'disabled' : ''}>Next ›</button>
-    </div>`;
+  if (pageJobs.length === 0) {
+    list.innerHTML = `
+      <div class="empty">
+        <div class="empty-title">No jobs match "${esc(searchQuery)}"</div>
+      </div>`;
+    return;
+  }
 
   list.innerHTML = pageJobs.map((job, i) => {
     const chips = [];
@@ -172,7 +174,7 @@ async function render(page) {
         ${genError ? `<p class="job-generating" style="color:var(--destructive)">⚠ ${esc(genError)}</p>` : ''}
       </div>
       <button class="${genBtnClass}" data-url="${esc(job.url)}" title="${esc(genBtnTitle)}" ${genBtnDisabled ? 'disabled' : ''}>${genBtnContent}</button>
-      <button class="job-remove" data-idx="${start + i}" title="Remove">
+      <button class="job-remove" data-url="${esc(job.url)}" title="Remove">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
           <path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
@@ -183,9 +185,10 @@ async function render(page) {
 
   list.querySelectorAll('.job-remove').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const jobs = await loadJobs();
-      jobs.splice(+btn.dataset.idx, 1);
-      await saveJobs(jobs);
+      const all = await loadJobs();
+      const idx = all.findIndex(j => j.url === btn.dataset.url);
+      if (idx !== -1) all.splice(idx, 1);
+      await saveJobs(all);
       render();
     });
   });
@@ -236,9 +239,6 @@ async function render(page) {
       await render();
     });
   });
-
-  document.getElementById('prevBtn')?.addEventListener('click', () => render(currentPage - 1));
-  document.getElementById('nextBtn')?.addEventListener('click', () => render(currentPage + 1));
 
   // Tick elapsed-time labels for pending generations without re-rendering
   const hasPending = Object.values(resumeGenerations).some(g => g?.status === 'pending');
@@ -404,13 +404,18 @@ function buildDocx(markdown) {
   // Render inline bold (**text**) and italic (*text*) as OOXML runs
   function runs(text, sz) {
     const szTag = `<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>`;
-    return text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/).map((part, i) => {
+    return text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]*\]\([^)]*\))/).map(part => {
       if (!part) return '';
       if (part.startsWith('**') && part.endsWith('**')) {
         return `<w:r><w:rPr><w:b/>${szTag}</w:rPr><w:t xml:space="preserve">${x(part.slice(2,-2))}</w:t></w:r>`;
       }
       if (part.startsWith('*') && part.endsWith('*')) {
         return `<w:r><w:rPr><w:i/>${szTag}</w:rPr><w:t xml:space="preserve">${x(part.slice(1,-1))}</w:t></w:r>`;
+      }
+      const linkM = part.match(/^\[([^\]]*)\]\(([^)]*)\)$/);
+      if (linkM) {
+        // Render markdown link as the raw URL (no markdown syntax in docx)
+        return `<w:r><w:rPr>${szTag}</w:rPr><w:t xml:space="preserve">${x(linkM[2])}</w:t></w:r>`;
       }
       return `<w:r><w:rPr>${szTag}</w:rPr><w:t xml:space="preserve">${x(part)}</w:t></w:r>`;
     }).join('');
@@ -796,6 +801,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!confirm('Clear all generated resumes? You can regenerate them anytime.')) return;
     await chrome.storage.local.remove('generatedResumes');
     generatedResumes.clear();
+    render();
+  });
+
+  document.getElementById('searchInput').addEventListener('input', e => {
+    searchQuery = e.target.value;
     render();
   });
 
