@@ -240,15 +240,20 @@ function processPage() {
 // --- Track All Visible ---
 
 function getJobCards() {
-  // Jobs-tracker saved-jobs page: one unique anchor per job
+  // Jobs-tracker saved-jobs page: one unique anchor per job, preferring the
+  // multiline link variant whose text is "Title\n\nCompany · Location\n\nDate"
   if (location.pathname.startsWith('/jobs-tracker')) {
-    const seen = new Set();
-    return Array.from(document.querySelectorAll('a[href*="/jobs/view/"]')).filter(a => {
+    const byId = new Map();
+    Array.from(document.querySelectorAll('a[href*="/jobs/view/"]')).forEach(a => {
       const m = a.href.match(/\/jobs\/view\/(\d+)/);
-      if (!m || seen.has(m[1])) return false;
-      seen.add(m[1]);
-      return true;
+      if (!m) return;
+      const id = m[1];
+      const prev = byId.get(id);
+      if (!prev || (a.innerText.includes('\n') && !prev.innerText.includes('\n'))) {
+        byId.set(id, a);
+      }
     });
+    return Array.from(byId.values());
   }
   // Search/collections pages use lazy-column; recommended/collections pages use scaffold-layout__list
   const leftCol = document.querySelectorAll('[data-testid="lazy-column"]')[0]
@@ -296,6 +301,36 @@ async function waitForDescription(timeout = 8000) {
   return { panel, desc: panel ? getDescription(panel) : '' };
 }
 
+// Parse title / company / location from a jobs-tracker card anchor's innerText.
+// Structured format (preferred): "Title\n\nCompany · Location\n\nDate"
+function getTrackerJobInfo(anchor) {
+  const raw = anchor.innerText || '';
+  const jobId = anchor.href.match(/\/jobs\/view\/(\d+)/)?.[1] || '';
+  const url = `https://www.linkedin.com/jobs/view/${jobId}/`;
+
+  const parts = raw.split(/\n\n+/).map(p => p.replace(/\n/g, ' ').trim()).filter(Boolean);
+  let title = '', company = '', location = '', postedDate = '';
+
+  if (parts.length >= 2) {
+    title = parts[0];
+    const dotIdx = parts[1].indexOf(' · ');
+    if (dotIdx !== -1) {
+      company  = parts[1].slice(0, dotIdx).trim();
+      location = parts[1].slice(dotIdx + 3).trim();
+    } else {
+      company = parts[1];
+    }
+    if (parts[2]) postedDate = parseRelativeDate(parts[2]);
+  } else {
+    // Single-line fallback: "Title Company · Location Date"
+    const dotIdx = raw.indexOf(' · ');
+    title    = dotIdx !== -1 ? raw.slice(0, dotIdx).trim() : raw.slice(0, 80).trim();
+    location = dotIdx !== -1 ? raw.slice(dotIdx + 3).replace(/\s*(reposted\s+|just now|\d+\s*(day|hour|week|month)s?\s*ago).*/i, '').trim() : '';
+  }
+
+  return { jobId, url, title, company, location, postedDate };
+}
+
 async function trackAllVisible(port, isStopped) {
   const isTrackerPage = location.pathname.startsWith('/jobs-tracker');
   const cards = getJobCards();
@@ -305,18 +340,39 @@ async function trackAllVisible(port, isStopped) {
     return;
   }
 
-  // Pre-collect job URLs for jobs-tracker so we can navigate after the original DOM changes
-  const preUrls = isTrackerPage
-    ? cards.map(a => { const u = a.href.split('?')[0]; return u.endsWith('/') ? u : u + '/'; })
-    : null;
-
   let done = 0, skipped = 0, failed = 0;
   const total = cards.length;
   let aborted = false;
   port.onDisconnect.addListener(() => { aborted = true; });
-
   port.postMessage({ type: 'progress', done, total, skipped, failed });
 
+  if (isTrackerPage) {
+    // Jobs-tracker links open target="_blank" (new tab) so clicking never changes the
+    // current tab's URL. Extract title/company/location from card text directly and
+    // save without any navigation. Description is not available here.
+    for (const card of cards) {
+      if (aborted) break;
+      if (isStopped()) {
+        port.postMessage({ type: 'stopped', done: done - skipped - failed, skipped, failed, total });
+        return;
+      }
+      try {
+        const info = getTrackerJobInfo(card);
+        if (!info.jobId) { failed++; done++; port.postMessage({ type: 'progress', done, total, skipped, failed }); continue; }
+        if (await isTracked(info.jobId)) { skipped++; done++; port.postMessage({ type: 'progress', done, total, skipped, failed }); continue; }
+        await toggleJob(info.jobId, info.title, info.company, info.url, '', info.location, info.postedDate, '');
+        done++;
+        port.postMessage({ type: 'progress', done, total, skipped, failed });
+      } catch {
+        failed++; done++;
+        port.postMessage({ type: 'progress', done, total, skipped, failed });
+      }
+    }
+    if (!aborted) port.postMessage({ type: 'done', done: done - skipped - failed, skipped, failed, total });
+    return;
+  }
+
+  // Search / collections / recommended pages: click each card and wait for the detail panel
   for (let i = 0; i < total; i++) {
     if (aborted) break;
     if (isStopped()) {
@@ -324,10 +380,7 @@ async function trackAllVisible(port, isStopped) {
       return;
     }
     try {
-      // Pre-check: skip already-tracked jobs without clicking
-      const preId = isTrackerPage
-        ? preUrls[i].match(/\/jobs\/view\/(\d+)/)?.[1]
-        : cards[i].dataset?.occludableJobId;
+      const preId = cards[i].dataset?.occludableJobId;
       if (preId && await isTracked(preId)) {
         skipped++; done++;
         port.postMessage({ type: 'progress', done, total, skipped, failed });
@@ -335,48 +388,26 @@ async function trackAllVisible(port, isStopped) {
       }
 
       const prevJobId = getJobIdFromUrl();
-
-      if (isTrackerPage) {
-        // Click the original anchor if still in DOM; otherwise create a temporary one
-        if (document.body.contains(cards[i])) {
-          cards[i].click();
-        } else {
-          const tempA = document.createElement('a');
-          tempA.href = preUrls[i];
-          document.body.appendChild(tempA);
-          tempA.click();
-          tempA.remove();
-        }
-      } else {
-        // On recommended/collections pages the card is an <li>; the inner <a> must be clicked
-        (cards[i].querySelector('a[href*="/jobs/view/"]') || cards[i]).click();
-      }
+      // On recommended/collections pages the card is an <li>; the inner <a> must be clicked
+      (cards[i].querySelector('a[href*="/jobs/view/"]') || cards[i]).click();
 
       const result = await waitForPanelJob(prevJobId);
       if (!result) { failed++; done++; port.postMessage({ type: 'progress', done, total, skipped, failed }); continue; }
 
       const { jobId } = result;
 
-      // Post-click check for pages where ID wasn't known before clicking
       if (await isTracked(jobId)) {
         skipped++; done++;
         port.postMessage({ type: 'progress', done, total, skipped, failed });
         continue;
       }
 
-      // Wait until description is present, not a fixed delay
       const { panel, desc } = await waitForDescription();
       if (!panel) { failed++; done++; port.postMessage({ type: 'progress', done, total, skipped, failed }); continue; }
 
       await toggleJob(
-        jobId,
-        getJobTitle(panel),
-        getCompany(panel),
-        getJobUrl(jobId),
-        desc,
-        getLocation(panel),
-        getPostedDate(panel),
-        getApplicants(panel)
+        jobId, getJobTitle(panel), getCompany(panel), getJobUrl(jobId),
+        desc, getLocation(panel), getPostedDate(panel), getApplicants(panel)
       );
 
       done++;
