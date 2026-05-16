@@ -616,35 +616,33 @@
   <!-- Jobs view -->
   <div id="view-jobs">
     <div class="action-bar">
-      <!-- Row 1: Track All + Score All + Clear -->
-      <div class="action-row" style="margin-bottom:2px">
-        <button class="btn btn-outline" id="trackAllBtn" disabled style="flex:1">
+      <!-- 2×2 grid: Track All | Score All / Export | Clear -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:2px">
+        <button class="btn btn-outline" id="trackAllBtn" disabled>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
           </svg>
           Track All
         </button>
-        <button class="btn btn-outline" id="scoreAllBtn" disabled style="flex:1">
+        <button class="btn btn-outline" id="scoreAllBtn" disabled>
           ⭐ Score All
         </button>
-        <button class="icon-btn" id="clearBtn" title="Clear all" style="color:var(--destructive);flex-shrink:0;width:34px;height:34px;border:1px solid var(--border)">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="3 6 5 6 21 6"/>
-            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-            <path d="M10 11v6M14 11v6"/>
-            <path d="M9 6V4h6v2"/>
-          </svg>
-        </button>
-      </div>
-      <!-- Row 2: Export (full width) -->
-      <div class="action-row">
-        <button class="btn btn-primary" id="exportBtn" disabled style="flex:1">
+        <button class="btn btn-primary" id="exportBtn" disabled>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="7 10 12 15 17 10"/>
             <line x1="12" y1="15" x2="12" y2="3"/>
           </svg>
           Export jobs.xlsx
+        </button>
+        <button class="btn btn-ghost" id="clearBtn" title="Clear all">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+            <path d="M10 11v6M14 11v6"/>
+            <path d="M9 6V4h6v2"/>
+          </svg>
+          Clear All
         </button>
       </div>
       <!-- Row 3: Search -->
