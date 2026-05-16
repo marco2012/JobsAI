@@ -277,11 +277,17 @@ async function waitForPanelJob(previousJobId, timeout = 6000) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
     const jobId = getJobIdFromUrl();
-    if (jobId && jobId !== previousJobId) {
+    if (jobId) {
       const panel = getDetailPanel();
-      // On full view pages the whole body is the panel — no Save button check needed
       const isViewPage = !!location.pathname.match(/\/jobs\/view\/\d+/);
-      if (panel && (isViewPage || findSaveButton(panel))) return { jobId, panel };
+      const panelReady = panel && (isViewPage || findSaveButton(panel));
+      if (panelReady) {
+        if (jobId !== previousJobId) return { jobId, panel };
+        // URL hasn't changed — the clicked card was already the displayed job.
+        // Wait 500 ms to let LinkedIn update the URL in case this is just slow navigation,
+        // then accept the current panel.
+        if (Date.now() - start > 500) return { jobId, panel };
+      }
     }
     await sleep(150);
   }
