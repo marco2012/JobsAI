@@ -335,6 +335,22 @@
     .job-gen-btn--stop { border-color: var(--destructive); color: var(--destructive); }
     .job-gen-btn--stop:hover:not(:disabled) { background: var(--destructive); border-color: var(--destructive); color: #fff; }
 
+    .job-regen-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: transparent;
+      color: var(--muted-fg);
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .job-regen-btn:hover { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
+
     .job-remove {
       display: flex;
       align-items: center;
@@ -755,7 +771,7 @@
       <!-- OpenRouter panel -->
       <div id="panelOpenRouter">
         <div class="field">
-          <label class="field-label" for="openrouterKey">API Key — <a href="https://openrouter.ai" target="_blank" style="font-weight:400;color:var(--muted-fg);text-decoration:underline;text-underline-offset:2px">openrouter.ai</a></label>
+          <label class="field-label" for="openrouterKey">API Key — <a href="https://openrouter.ai/workspaces/default/keys" target="_blank" style="font-weight:400;color:var(--muted-fg);text-decoration:underline;text-underline-offset:2px">openrouter.ai</a></label>
           <input class="field-input" id="openrouterKey" type="password"
                  placeholder="sk-or-…" spellcheck="false" autocomplete="off" />
         </div>

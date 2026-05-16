@@ -187,6 +187,7 @@ async function render() {
         ${genError ? `<p class="job-generating" style="color:var(--destructive)">⚠ ${esc(genError)}</p>` : ''}
       </div>
       <button class="${genBtnClass}" data-url="${esc(job.url)}" title="${esc(genBtnTitle)}" ${genBtnDisabled ? 'disabled' : ''}>${genBtnContent}</button>
+      ${hasResume ? `<button class="job-regen-btn" data-url="${esc(job.url)}" title="Clear and regenerate resume"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.93"/></svg></button>` : ''}
       <button class="job-remove" data-url="${esc(job.url)}" title="Remove">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
@@ -239,6 +240,38 @@ async function render() {
       resumeGenerations[job.url] = { status: 'pending', startedAt: Date.now() };
       const updatedGens = { ...resumeGenerations };
       chrome.storage.local.set({ resumeGenerations: updatedGens });
+      const customPrompt = local.resumePrompt || DEFAULT_RESUME_PROMPT;
+      chrome.runtime.sendMessage({
+        action: 'generateResume',
+        jobUrl: job.url,
+        job,
+        resumeText: local.resumeText,
+        apiKey: live.openrouterKey,
+        geminiKey: live.geminiKey,
+        model: live.selectedModel || 'openai/gpt-5.4-mini',
+        format,
+        customPrompt,
+      });
+      await render();
+    });
+  });
+
+  list.querySelectorAll('.job-regen-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const job = pageJobs.find(j => j.url === btn.dataset.url);
+      if (!job) return;
+      // Clear stored resume then trigger a fresh generation
+      const { generatedResumes: stored = {} } = await chrome.storage.local.get('generatedResumes');
+      delete stored[job.url];
+      generatedResumes.delete(job.url);
+      await chrome.storage.local.set({ generatedResumes: stored });
+
+      const local = await loadLocalResumeData();
+      if (!local.resumeText) return;
+      const live = getLiveSettings();
+      const format = local.resumeFormat || 'pdf';
+      resumeGenerations[job.url] = { status: 'pending', startedAt: Date.now() };
+      await chrome.storage.local.set({ resumeGenerations: { ...resumeGenerations } });
       const customPrompt = local.resumePrompt || DEFAULT_RESUME_PROMPT;
       chrome.runtime.sendMessage({
         action: 'generateResume',
