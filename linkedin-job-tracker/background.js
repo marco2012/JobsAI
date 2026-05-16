@@ -274,7 +274,7 @@ No explanation. No punctuation. Just the number.`;
     body: JSON.stringify({
       model,
       messages: [{ role: 'user', content: prompt }],
-      max_tokens: 10,
+      max_tokens: 50,
     }),
   });
 
@@ -288,7 +288,9 @@ No explanation. No punctuation. Just the number.`;
 
   const data = await response.json();
   if (!data.choices?.length) return null;
-  const result = parseInt(data.choices[0].message.content.trim(), 10);
+  const msg = data.choices[0].message;
+  const text = (msg.content ?? msg.reasoning_content ?? msg.reasoning ?? '').trim();
+  const result = parseInt(text, 10);
   if (isNaN(result) || result < 1 || result > 100) return null;
   return result;
 }
