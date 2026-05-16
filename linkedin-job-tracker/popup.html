@@ -691,10 +691,29 @@
                  placeholder="AIzaSy…" spellcheck="false" autocomplete="off" />
         </div>
         <div class="field">
-          <label class="field-label" for="modelSelectGemini">Model</label>
+          <label class="field-label" for="modelSelectGemini">Resume model</label>
           <select class="field-input" id="modelSelectGemini">
-            <option value="gemini-flash-latest">Gemini Flash Latest</option>
             <optgroup label="Gemini 3.1">
+              <option value="gemini-flash-latest">Gemini Flash Latest</option>
+              <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview</option>
+              <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
+              <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite Preview</option>
+            </optgroup>
+            <optgroup label="Gemini 2.5">
+              <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+              <option value="gemini-2.5-flash-lite-preview-06-17">Gemini 2.5 Flash Lite</option>
+              <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+            </optgroup>
+            <optgroup label="Gemini 2.0">
+              <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+            </optgroup>
+          </select>
+        </div>
+        <div class="field">
+          <label class="field-label" for="scoringModelSelectGemini">Scoring model</label>
+          <select class="field-input" id="scoringModelSelectGemini">
+            <optgroup label="Gemini 3.1">
+              <option value="gemini-flash-latest">Gemini Flash Latest</option>
               <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview</option>
               <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
               <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite Preview</option>
@@ -720,11 +739,31 @@
                  placeholder="sk-or-…" spellcheck="false" autocomplete="off" />
         </div>
         <div class="field">
-          <label class="field-label" for="modelSelectOR">Model</label>
+          <label class="field-label" for="modelSelectOR">Resume model</label>
           <select class="field-input" id="modelSelectOR">
             <optgroup label="Google">
               <option value="google/gemini-3.0-flash">Gemini 3.0 Flash</option>
-              <option value="google/gemini-3.0-flash-lite">Gemini 3.0 Flash Lite</option>
+              <option value="google/gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
+            </optgroup>
+            <optgroup label="DeepSeek">
+              <option value="deepseek/deepseek-v4-flash">DeepSeek V4 Flash</option>
+            </optgroup>
+            <optgroup label="OpenAI">
+              <option value="openai/gpt-4.1-nano">GPT-4.1 Nano</option>
+              <option value="openai/gpt-5.4">GPT-5.4</option>
+              <option value="openai/gpt-5.4-mini">GPT-5.4 Mini</option>
+            </optgroup>
+            <optgroup label="Anthropic">
+              <option value="anthropic/claude-sonnet-4.6">Claude Sonnet 4.6</option>
+            </optgroup>
+          </select>
+        </div>
+        <div class="field">
+          <label class="field-label" for="scoringModelSelectOR">Scoring model</label>
+          <select class="field-input" id="scoringModelSelectOR">
+            <optgroup label="Google">
+              <option value="google/gemini-3.0-flash">Gemini 3.0 Flash</option>
+              <option value="google/gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
             </optgroup>
             <optgroup label="DeepSeek">
               <option value="deepseek/deepseek-v4-flash">DeepSeek V4 Flash</option>
@@ -767,6 +806,15 @@
         <p class="field-hint">Auto-generated from your resume. Edit and save to customise.</p>
         <textarea id="candidateProfileArea" class="field-input" rows="6"
           placeholder="Upload your resume above to generate a profile…"></textarea>
+      </div>
+
+      <div class="field">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+          <label class="field-label" for="resumePromptArea">Resume Generation Prompt</label>
+          <button class="btn btn-outline btn-sm" id="resetPromptBtn" style="height:26px;padding:0 10px;font-size:11px">Reset to default</button>
+        </div>
+        <p class="field-hint">Instructions sent to the AI when generating tailored resumes. Format-specific rules are appended automatically.</p>
+        <textarea id="resumePromptArea" class="field-input" rows="8" placeholder="Loading…"></textarea>
       </div>
 
       <div class="settings-footer">
