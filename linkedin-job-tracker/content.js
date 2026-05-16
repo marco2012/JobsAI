@@ -390,13 +390,20 @@ async function trackAllVisible(port, isStopped) {
       }
 
       const prevJobId = getJobIdFromUrl();
-      // On recommended/collections pages the card is an <li>; the inner <a> must be clicked
-      (cards[i].querySelector('a[href*="/jobs/view/"]') || cards[i]).click();
+      const cardHref = cards[i].querySelector('a[href*="/jobs/view/"]')?.href;
+      const cardJobId = preId || cardHref?.match(/\/jobs\/view\/(\d+)/)?.[1];
 
-      const result = await waitForPanelJob(prevJobId);
-      if (!result) { failed++; done++; port.postMessage({ type: 'progress', done, total, skipped, failed }); continue; }
-
-      const { jobId } = result;
+      let jobId;
+      if (cardJobId && cardJobId === prevJobId) {
+        // Card is already the displayed job — clicking won't change the URL, skip the wait
+        jobId = prevJobId;
+      } else {
+        // On recommended/collections pages the card is an <li>; the inner <a> must be clicked
+        (cards[i].querySelector('a[href*="/jobs/view/"]') || cards[i]).click();
+        const result = await waitForPanelJob(prevJobId);
+        if (!result) { failed++; done++; port.postMessage({ type: 'progress', done, total, skipped, failed }); continue; }
+        jobId = result.jobId;
+      }
 
       if (await isTracked(jobId)) {
         skipped++; done++;
