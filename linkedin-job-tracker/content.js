@@ -494,29 +494,46 @@ async function initTrackerButtons() {
     btn.addEventListener('click', async e => {
       e.preventDefault();
       e.stopPropagation();
-      if (btn.dataset.tracked === 'true') {
+      // Extension context invalidated (page still open after reload) — bail gracefully
+      if (!chrome.runtime?.id) { btn.textContent = 'Reload page'; return; }
+      try {
+        if (btn.dataset.tracked === 'true') {
+          btn.disabled = true;
+          const jobs = await loadJobs();
+          const idx = jobs.findIndex(j => j.id === info.jobId);
+          if (idx !== -1) { jobs.splice(idx, 1); await saveJobs(jobs); }
+          applyState(btn, false);
+          btn.disabled = false;
+          return;
+        }
         btn.disabled = true;
-        const jobs = await loadJobs();
-        const idx = jobs.findIndex(j => j.id === info.jobId);
-        if (idx !== -1) { jobs.splice(idx, 1); await saveJobs(jobs); }
-        applyState(btn, false);
-        btn.disabled = false;
-        return;
+        btn.textContent = 'Opening…';
+        chrome.runtime.sendMessage({
+          action: 'trackJobViaTab',
+          jobUrl: info.url,
+          jobId: info.jobId,
+          title: info.title,
+          company: info.company,
+          location: info.location,
+          postedDate: info.postedDate,
+        });
+      } catch (err) {
+        if (err.message?.includes('Extension context invalidated')) {
+          btn.textContent = 'Reload page';
+        } else {
+          btn.textContent = '⚠ Error';
+          btn.disabled = false;
+          setTimeout(() => applyState(btn, btn.dataset.tracked === 'true'), 2000);
+        }
       }
-      btn.disabled = true;
-      btn.textContent = 'Opening…';
-      chrome.runtime.sendMessage({
-        action: 'trackJobViaTab',
-        jobUrl: info.url,
-        jobId: info.jobId,
-        title: info.title,
-        company: info.company,
-        location: info.location,
-        postedDate: info.postedDate,
-      });
     });
 
-    container.appendChild(btn);
+    // Insert after the "Add note" button if present, otherwise append
+    const addNoteBtn = Array.from(container.querySelectorAll('button')).find(b =>
+      /add note/i.test(b.textContent?.trim()) || /add note/i.test(b.getAttribute('aria-label') || '')
+    );
+    if (addNoteBtn) addNoteBtn.insertAdjacentElement('afterend', btn);
+    else container.appendChild(btn);
   }
 }
 
