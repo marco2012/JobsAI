@@ -82,6 +82,11 @@ function fmt(iso) {
 // ── Render job list (with pagination) ───────────────────────────────────────
 
 let searchQuery = '';
+let sortBy = 'score';
+let lowScoreFolded = true;
+
+const APP_STATUSES = ['', 'Applied', 'Interview', 'Offer', 'Rejected'];
+const STATUS_COLORS = { '': '', 'Applied': '#2563eb', 'Interview': '#d97706', 'Offer': '#16a34a', 'Rejected': '#6b7280' };
 
 async function render() {
   const [jobs, sync] = await Promise.all([loadJobs(), loadSyncSettings()]);
@@ -94,6 +99,7 @@ async function render() {
   const scoreAllBtn = document.getElementById('scoreAllBtn');
   scoreAllBtn.disabled = jobs.length === 0 || !hasProfile;
   scoreAllBtn.title    = !hasProfile ? 'Upload your resume in Settings first' : '';
+  document.getElementById('clearBtn').disabled = jobs.length === 0;
 
   if (jobs.length === 0) {
     subtitle.textContent = `0 jobs tracked · v${EXT_VERSION}`;
@@ -106,16 +112,28 @@ async function render() {
     return;
   }
 
-  // Sort: by score if any scored, otherwise newest first
-  const hasAnyScore = jobs.some(j => typeof j.fit_score === 'number');
-  if (hasAnyScore) {
+  // Sort
+  if (sortBy === 'score') {
     jobs.sort((a, b) => {
       const sa = typeof a.fit_score === 'number' ? a.fit_score : -1;
       const sb = typeof b.fit_score === 'number' ? b.fit_score : -1;
       return sb - sa;
     });
-  } else {
-    jobs.sort((a, b) => new Date(b.dateAdded) - new Date(a.dateAdded));
+  } else if (sortBy === 'company') {
+    jobs.sort((a, b) => (a.company || '').localeCompare(b.company || ''));
+  } else if (sortBy === 'title') {
+    jobs.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+  } else if (sortBy === 'date') {
+    // Group by batchId (jobs without one use their own dateAdded as group key).
+    // Sort groups newest-first; within each group sort by score desc.
+    const groupTime = j => j.batchId ? parseInt(j.batchId, 10) : new Date(j.dateAdded).getTime();
+    jobs.sort((a, b) => {
+      const tDiff = groupTime(b) - groupTime(a);
+      if (tDiff !== 0) return tDiff;
+      const sa = typeof a.fit_score === 'number' ? a.fit_score : -1;
+      const sb = typeof b.fit_score === 'number' ? b.fit_score : -1;
+      return sb - sa;
+    });
   }
 
   // Filter by search query
@@ -138,7 +156,10 @@ async function render() {
     return;
   }
 
-  list.innerHTML = pageJobs.map((job, i) => {
+  const mainJobs = pageJobs.filter(j => typeof j.fit_score !== 'number' || j.fit_score >= 65);
+  const lowJobs  = pageJobs.filter(j => typeof j.fit_score === 'number' && j.fit_score < 65);
+
+  function jobHTML(job) {
     const chips = [];
     const hasDesc = job.description && job.description.trim().length > 30;
 
@@ -172,6 +193,11 @@ async function render() {
       genBtnTitle = genError ? `Last attempt failed: ${genError}` : canGen ? 'Generate tailored resume' : 'No description available';
       genBtnDisabled = !canGen;
     }
+    const appStatus = job.appStatus || '';
+    const statusColor = STATUS_COLORS[appStatus] || '';
+    const statusOptions = APP_STATUSES.map(s =>
+      `<option value="${s}" ${s === appStatus ? 'selected' : ''}>${s || 'Status…'}</option>`
+    ).join('');
     return `
     <div class="job-item">
       <div class="job-score ${scoreClass}">${scoreLabel}</div>
@@ -183,19 +209,55 @@ async function render() {
           <span class="job-company">${esc(job.company)}</span>
           ${job.location ? `<span class="job-sep"></span><span class="job-location">${esc(job.location)}</span>` : ''}
         </div>
+        <select class="app-status-select" data-url="${esc(job.url)}" style="--status-color:${statusColor}"${appStatus ? ` data-set="1"` : ''}>
+          ${statusOptions}
+        </select>
         ${isGenerating ? `<p class="job-generating"><span class="spinner"></span><span data-started-at="${genState.startedAt || Date.now()}">Generating…</span></p>` : ''}
         ${genError ? `<p class="job-generating" style="color:var(--destructive)">⚠ ${esc(genError)}</p>` : ''}
       </div>
-      <button class="${genBtnClass}" data-url="${esc(job.url)}" title="${esc(genBtnTitle)}" ${genBtnDisabled ? 'disabled' : ''}>${genBtnContent}</button>
-      ${hasResume ? `<button class="job-regen-btn" data-url="${esc(job.url)}" title="Clear and regenerate resume"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.93"/></svg></button>` : ''}
-      <button class="job-remove" data-url="${esc(job.url)}" title="Remove">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-          <path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
-        </svg>
-      </button>
+      <div class="job-actions">
+        <div class="job-actions-row">
+          <button class="${genBtnClass}" data-url="${esc(job.url)}" title="${esc(genBtnTitle)}" ${genBtnDisabled ? 'disabled' : ''}>${genBtnContent}</button>
+          ${hasResume ? `<button class="job-regen-btn" data-url="${esc(job.url)}" title="Clear and regenerate resume"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.93"/></svg></button>` : ''}
+          <button class="job-remove" data-url="${esc(job.url)}" title="Remove">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+              <path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+            </svg>
+          </button>
+        </div>
+      </div>
     </div>`;
-  }).join('');
+  }
+
+  const lowSection = lowJobs.length === 0 ? '' : `
+    <button class="low-score-toggle" id="lowScoreToggle">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+           style="transition:transform 0.2s;transform:rotate(${lowScoreFolded ? '0' : '180'}deg)">
+        <polyline points="6 9 12 15 18 9"/>
+      </svg>
+      ${lowJobs.length} low-score job${lowJobs.length !== 1 ? 's' : ''} below 65
+    </button>
+    ${lowScoreFolded ? '' : lowJobs.map(jobHTML).join('')}`;
+
+  list.innerHTML = mainJobs.map(jobHTML).join('') + lowSection;
+
+  document.getElementById('lowScoreToggle')?.addEventListener('click', () => {
+    lowScoreFolded = !lowScoreFolded;
+    render();
+  });
+
+  list.querySelectorAll('.app-status-select').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      const all = await loadJobs();
+      const idx = all.findIndex(j => j.url === sel.dataset.url);
+      if (idx !== -1) {
+        all[idx].appStatus = sel.value;
+        await saveJobs(all);
+      }
+      render();
+    });
+  });
 
   list.querySelectorAll('.job-remove').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -235,6 +297,11 @@ async function render() {
         return;
       }
       const live = getLiveSettings();
+      const { key: genKey, provider: genProvider } = resolveApi(live.selectedModel || 'openai/gpt-5.4-mini', live.openrouterKey, live.geminiKey);
+      if (!genKey?.trim()) {
+        alert(`Please set your ${genProvider} API key in Settings.`);
+        return;
+      }
       const format = local.resumeFormat || 'pdf';
       // Optimistically mark as pending so spinner shows immediately
       resumeGenerations[job.url] = { status: 'pending', startedAt: Date.now() };
@@ -269,6 +336,11 @@ async function render() {
       const local = await loadLocalResumeData();
       if (!local.resumeText) return;
       const live = getLiveSettings();
+      const { key: regenKey, provider: regenProvider } = resolveApi(live.selectedModel || 'openai/gpt-5.4-mini', live.openrouterKey, live.geminiKey);
+      if (!regenKey?.trim()) {
+        alert(`Please set your ${regenProvider} API key in Settings.`);
+        return;
+      }
       const format = local.resumeFormat || 'pdf';
       resumeGenerations[job.url] = { status: 'pending', startedAt: Date.now() };
       await chrome.storage.local.set({ resumeGenerations: { ...resumeGenerations } });
@@ -324,8 +396,9 @@ async function buildXlsxBuffer() {
     'Job Link':    j.url         || '',
     'Description': j.description || '',
     'Fit Score':   j.fit_score != null ? j.fit_score : '',
+    'Status':      j.appStatus   || '',
   }));
-  const ws = XLSX.utils.json_to_sheet(rows, { header: ['Role', 'Company', 'Location', 'Posted', 'Applicants', 'Saved', 'Job Link', 'Description', 'Fit Score'] });
+  const ws = XLSX.utils.json_to_sheet(rows, { header: ['Role', 'Company', 'Location', 'Posted', 'Applicants', 'Saved', 'Job Link', 'Description', 'Fit Score', 'Status'] });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Jobs');
   return XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
@@ -474,22 +547,22 @@ function buildDocx(markdown) {
 
     if (t.startsWith('# ')) {
       // Name / H1 — centered, large bold
-      return `<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:before="0" w:after="60"/></w:pPr>` +
-        `<w:r><w:rPr><w:b/><w:sz w:val="36"/><w:szCs w:val="36"/></w:rPr><w:t>${x(t.slice(2))}</w:t></w:r></w:p>`;
+      return `<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:before="0" w:after="40" w:line="240" w:lineRule="auto"/></w:pPr>` +
+        `<w:r><w:rPr><w:b/><w:sz w:val="32"/><w:szCs w:val="32"/></w:rPr><w:t>${x(t.slice(2))}</w:t></w:r></w:p>`;
     }
     if (t.startsWith('## ')) {
       // Section heading — bold uppercase with bottom border
-      return `<w:p><w:pPr><w:spacing w:before="160" w:after="40"/>` +
+      return `<w:p><w:pPr><w:spacing w:before="100" w:after="30" w:line="240" w:lineRule="auto"/>` +
         `<w:pBdr><w:bottom w:val="single" w:sz="4" w:space="1" w:color="000000"/></w:pBdr></w:pPr>` +
-        `<w:r><w:rPr><w:b/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr><w:t>${x(t.slice(3).toUpperCase())}</w:t></w:r></w:p>`;
+        `<w:r><w:rPr><w:b/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t>${x(t.slice(3).toUpperCase())}</w:t></w:r></w:p>`;
     }
     if (t.startsWith('### ')) {
       // Job / company line — bold
-      return `<w:p><w:pPr><w:spacing w:before="80" w:after="0"/></w:pPr>${runs(t.slice(4), '22')}</w:p>`;
+      return `<w:p><w:pPr><w:spacing w:before="60" w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>${runs(t.slice(4), '20')}</w:p>`;
     }
     if (t.startsWith('- ') || t.startsWith('* ')) {
       // Bullet point with hanging indent
-      return `<w:p><w:pPr><w:spacing w:after="0"/><w:ind w:left="360" w:hanging="180"/></w:pPr>` +
+      return `<w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/><w:ind w:left="300" w:hanging="150"/></w:pPr>` +
         `<w:r><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">• </w:t></w:r>` +
         runs(t.slice(2), '20') + `</w:p>`;
     }
@@ -497,12 +570,12 @@ function buildDocx(markdown) {
       return `<w:p><w:pPr><w:spacing w:after="0" w:before="0"/></w:pPr></w:p>`;
     }
     // Regular paragraph (contact line, summary, etc.)
-    return `<w:p><w:pPr><w:spacing w:after="0"/></w:pPr>${runs(t, '20')}</w:p>`;
+    return `<w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>${runs(t, '20')}</w:p>`;
   }).join('');
 
   const ct   = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`;
   const rels  = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
-  const doc   = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${paras}<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>`;
+  const doc   = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${paras}<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="720" w:right="720" w:bottom="720" w:left="720"/></w:sectPr></w:body></w:document>`;
 
   const zip = new JSZip();
   zip.file('[Content_Types].xml', ct);
@@ -538,9 +611,13 @@ function switchProviderTab(provider) {
 
 function getScoringModel() {
   const active = document.querySelector('.provider-tab.active')?.dataset.tab;
-  return active === 'openrouter'
-    ? document.getElementById('scoringModelSelectOR').value
-    : document.getElementById('scoringModelSelectGemini').value;
+  if (active === 'openrouter') {
+    const sel = document.getElementById('scoringModelSelectOR');
+    return sel.value === '__custom__'
+      ? document.getElementById('customScoringModelOR').value.trim()
+      : sel.value;
+  }
+  return document.getElementById('scoringModelSelectGemini').value;
 }
 
 
@@ -558,18 +635,46 @@ function initProviderTabs() {
     });
   });
   document.getElementById('modelSelectGemini').addEventListener('change', scheduleAutoSave);
-  document.getElementById('modelSelectOR').addEventListener('change', scheduleAutoSave);
+  document.getElementById('modelSelectOR').addEventListener('change', () => {
+    const inp = document.getElementById('customModelOR');
+    inp.style.display = document.getElementById('modelSelectOR').value === '__custom__' ? '' : 'none';
+    scheduleAutoSave();
+  });
   document.getElementById('scoringModelSelectGemini').addEventListener('change', scheduleAutoSave);
-  document.getElementById('scoringModelSelectOR').addEventListener('change', scheduleAutoSave);
+  document.getElementById('scoringModelSelectOR').addEventListener('change', () => {
+    const inp = document.getElementById('customScoringModelOR');
+    inp.style.display = document.getElementById('scoringModelSelectOR').value === '__custom__' ? '' : 'none';
+    scheduleAutoSave();
+  });
+  document.getElementById('customModelOR').addEventListener('input', scheduleAutoSave);
+  document.getElementById('customScoringModelOR').addEventListener('input', scheduleAutoSave);
   document.getElementById('geminiKey').addEventListener('input', scheduleAutoSave);
   document.getElementById('openrouterKey').addEventListener('input', scheduleAutoSave);
 }
 
 function getSelectedModel() {
   const active = document.querySelector('.provider-tab.active')?.dataset.tab;
-  return active === 'openrouter'
-    ? document.getElementById('modelSelectOR').value
-    : document.getElementById('modelSelectGemini').value;
+  if (active === 'openrouter') {
+    const sel = document.getElementById('modelSelectOR');
+    return sel.value === '__custom__'
+      ? document.getElementById('customModelOR').value.trim()
+      : sel.value;
+  }
+  return document.getElementById('modelSelectGemini').value;
+}
+
+function setORModelSelect(selectId, inputId, value) {
+  const sel = document.getElementById(selectId);
+  const inp = document.getElementById(inputId);
+  const known = Array.from(sel.options).some(o => o.value === value && o.value !== '__custom__');
+  if (known) {
+    sel.value = value;
+    inp.style.display = 'none';
+  } else {
+    sel.value = '__custom__';
+    inp.value = value;
+    inp.style.display = '';
+  }
 }
 
 // Read current keys + model directly from DOM (no storage round-trip needed)
@@ -595,9 +700,9 @@ async function loadSettingsUI() {
     const sm = sync.scoringModel && !sync.scoringModel.includes('/') ? sync.scoringModel : model;
     document.getElementById('scoringModelSelectGemini').value = sm;
   } else {
-    document.getElementById('modelSelectOR').value = model;
+    setORModelSelect('modelSelectOR', 'customModelOR', model);
     const sm = sync.scoringModel && sync.scoringModel.includes('/') ? sync.scoringModel : 'google/gemini-3.1-flash-lite';
-    document.getElementById('scoringModelSelectOR').value = sm;
+    setORModelSelect('scoringModelSelectOR', 'customScoringModelOR', sm);
   }
 
   document.getElementById('candidateProfileArea').value = sync.candidateProfile || '';
@@ -835,6 +940,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   initTrackAll();
   initScoreAll();
   await loadGeneratedResumes();
+  const { sortBy: savedSort } = await new Promise(r => chrome.storage.local.get('sortBy', r));
+  if (savedSort) {
+    sortBy = savedSort;
+    document.getElementById('sortSelect').value = savedSort;
+  }
   await render();
   await loadSettingsUI();
 
@@ -885,6 +995,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   document.getElementById('searchInput').addEventListener('input', e => {
     searchQuery = e.target.value;
+    render();
+  });
+
+  document.getElementById('sortSelect').addEventListener('change', e => {
+    sortBy = e.target.value;
+    chrome.storage.local.set({ sortBy });
     render();
   });
 

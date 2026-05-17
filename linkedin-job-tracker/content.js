@@ -155,11 +155,13 @@ function saveJobs(jobs) {
 async function isTracked(jobId) {
   return (await loadJobs()).some(j => j.id === jobId);
 }
-async function toggleJob(jobId, title, company, url, description, location, postedDate, applicants) {
+async function toggleJob(jobId, title, company, url, description, location, postedDate, applicants, batchId) {
   const jobs = await loadJobs();
   const idx = jobs.findIndex(j => j.id === jobId);
   if (idx === -1) {
-    jobs.push({ id: jobId, title, company, url, description, location, postedDate, applicants, dateAdded: new Date().toISOString() });
+    const entry = { id: jobId, title, company, url, description, location, postedDate, applicants, dateAdded: new Date().toISOString() };
+    if (batchId) entry.batchId = batchId;
+    jobs.push(entry);
     await saveJobs(jobs);
     return true;
   }
@@ -358,6 +360,7 @@ async function trackAllVisible(port, isStopped) {
   let done = 0, skipped = 0, failed = 0;
   const total = cards.length;
   let aborted = false;
+  const batchId = Date.now().toString();
   port.onDisconnect.addListener(() => { aborted = true; });
   port.postMessage({ type: 'progress', done, total, skipped, failed });
 
@@ -403,7 +406,7 @@ async function trackAllVisible(port, isStopped) {
 
       await toggleJob(
         jobId, getJobTitle(panel), getCompany(panel), getJobUrl(jobId),
-        desc, getLocation(panel), getPostedDate(panel), getApplicants(panel)
+        desc, getLocation(panel), getPostedDate(panel), getApplicants(panel), batchId
       );
 
       done++;

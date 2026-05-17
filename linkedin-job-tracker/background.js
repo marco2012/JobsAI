@@ -126,16 +126,18 @@ async function fetchResume(job, resumeText, apiKey, geminiKey, model, format, us
 - Never escape # inside \\newcommand definitions — #1, #2, #3 are argument placeholders, not literal text
 - Keep the same \\begin{document} ... \\end{document} structure
 - Output ONLY the complete .tex file. Start with the document class line (e.g. \\documentclass[...])`
-    : `- Output the resume in Markdown format so it can be rendered as a formatted Word document:
-  - # Candidate Name (H1, one line)
-  - Contact info as a plain line (email | phone | LinkedIn)
-  - ## SECTION HEADINGS (H2) for Experience, Education, Skills, etc.
+    : `- Use a classic, professional Harvard-style resume layout — clean, simple, no graphics or columns
+- Output the resume in Markdown format so it can be rendered as a formatted Word document:
+  - # Candidate Name (H1, one line, centered)
+  - Contact info as a plain line (email | phone | LinkedIn | location)
+  - ## SECTION HEADINGS (H2, all-caps) for Experience, Education, Skills, etc.
   - ### Company | Role | Dates (H3) for each position
   - - Bullet points for achievements (XYZ formula, metrics required)
-  - **bold** for company names, key metrics, and technologies
-  - Start directly with # Name`;
+  - **bold** for key metrics and technologies
+  - Start directly with # Name
+- No tables, no sidebars, no icons, no color — pure text hierarchy`;
 
-  const instructions = customPrompt || `You are a professional resume writer${isTex ? ' specializing in LaTeX' : ''}. Tailor this resume to the job description using the XYZ formula.
+  const instructions = customPrompt || `You are a professional resume writer${isTex ? ' specializing in LaTeX' : ' producing a classic Harvard-style Word resume'}. Tailor this resume to the job description using the XYZ formula.
 
 Rules:
 - XYZ formula: "Accomplished [X] as measured by [Y] by doing [Z]"
