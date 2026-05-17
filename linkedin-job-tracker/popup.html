@@ -129,6 +129,22 @@
     }
     .btn-ghost:disabled { opacity: 0.45; cursor: default; }
 
+    .btn-blue  { background:#2563eb; color:#fff; border-color:#2563eb; }
+    .btn-blue:hover:not(:disabled)  { background:#1d4ed8; border-color:#1d4ed8; }
+    .btn-blue:disabled  { opacity:.45; cursor:default; }
+
+    .btn-amber { background:#d97706; color:#fff; border-color:#d97706; }
+    .btn-amber:hover:not(:disabled) { background:#b45309; border-color:#b45309; }
+    .btn-amber:disabled { opacity:.45; cursor:default; }
+
+    .btn-green { background:#16a34a; color:#fff; border-color:#16a34a; }
+    .btn-green:hover:not(:disabled) { background:#15803d; border-color:#15803d; }
+    .btn-green:disabled { opacity:.45; cursor:default; }
+
+    .btn-red   { background:#ef4444; color:#fff; border-color:#ef4444; }
+    .btn-red:hover:not(:disabled)   { background:#dc2626; border-color:#dc2626; }
+    .btn-red:disabled   { opacity:.45; cursor:default; }
+
     .btn-sm {
       height: 30px;
       padding: 0 12px;
@@ -319,6 +335,22 @@
     .job-gen-btn--stop { border-color: var(--destructive); color: var(--destructive); }
     .job-gen-btn--stop:hover:not(:disabled) { background: var(--destructive); border-color: var(--destructive); color: #fff; }
 
+    .job-regen-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: transparent;
+      color: var(--muted-fg);
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .job-regen-btn:hover { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
+
     .job-remove {
       display: flex;
       align-items: center;
@@ -359,20 +391,20 @@
       display: flex;
       align-items: center;
       gap: 8px;
-      margin-top: 4px;
+      margin-top: 18px;
     }
     .settings-section span {
-      font-size: 10px;
-      font-weight: 600;
+      font-size: 10.5px;
+      font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 0.07em;
-      color: var(--muted-fg);
+      letter-spacing: 0.08em;
+      color: var(--fg);
       white-space: nowrap;
     }
     .settings-section hr {
       flex: 1;
       border: none;
-      border-top: 1px solid var(--border);
+      border-top: 2px solid var(--border);
     }
 
     /* Field */
@@ -489,27 +521,34 @@
       flex-shrink: 0;
     }
 
-    /* Provider tabs */
+    /* Provider tabs — segmented control */
     .provider-tabs {
       display: flex;
-      border-bottom: 1px solid var(--border);
-      margin-bottom: 2px;
+      background: var(--muted);
+      border-radius: var(--radius);
+      padding: 3px;
+      gap: 3px;
     }
     .provider-tab {
-      padding: 6px 12px;
-      font-size: 12px;
-      font-weight: 500;
-      color: var(--muted-fg);
-      cursor: pointer;
+      flex: 1;
+      height: 30px;
+      border-radius: calc(var(--radius) - 1px);
       border: none;
-      background: none;
-      border-bottom: 2px solid transparent;
-      margin-bottom: -1px;
+      background: transparent;
+      color: var(--muted-fg);
+      font-size: 12.5px;
+      font-weight: 500;
+      cursor: pointer;
       font-family: inherit;
-      transition: color 0.15s, border-color 0.15s;
+      transition: background 0.15s, color 0.15s, box-shadow 0.15s;
     }
-    .provider-tab.active { color: var(--fg); border-bottom-color: var(--fg); }
+    .provider-tab.active {
+      background: var(--bg);
+      color: var(--fg);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.06);
+    }
     .provider-tab:hover:not(.active) { color: var(--fg); }
+    [data-theme="dark"] .provider-tab.active { box-shadow: 0 1px 4px rgba(0,0,0,0.5); }
 
     /* Settings footer */
     .settings-footer {
@@ -616,9 +655,18 @@
   <!-- Jobs view -->
   <div id="view-jobs">
     <div class="action-bar">
-      <!-- Row 1: Export (full width) -->
-      <div class="action-row">
-        <button class="btn btn-primary" id="exportBtn" disabled style="flex:1">
+      <!-- 2×2 grid: Track All | Score All / Export | Clear -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:2px">
+        <button class="btn btn-blue" id="trackAllBtn" disabled>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+          </svg>
+          Track All
+        </button>
+        <button class="btn btn-amber" id="scoreAllBtn" disabled>
+          ⭐ Score All
+        </button>
+        <button class="btn btn-green" id="exportBtn" disabled>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="7 10 12 15 17 10"/>
@@ -626,25 +674,14 @@
           </svg>
           Export jobs.xlsx
         </button>
-      </div>
-      <!-- Row 2: Track All + Score All + Clear -->
-      <div class="action-row" style="margin-bottom:2px">
-        <button class="btn btn-outline" id="trackAllBtn" disabled style="flex:1">
+        <button class="btn btn-red" id="clearBtn" title="Clear all">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
-          </svg>
-          Track All
-        </button>
-        <button class="btn btn-outline" id="scoreAllBtn" disabled style="flex:1">
-          ⭐ Score All
-        </button>
-        <button class="icon-btn" id="clearBtn" title="Clear all" style="color:var(--destructive);flex-shrink:0;width:34px;height:34px;border:1px solid var(--border)">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="3 6 5 6 21 6"/>
             <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
             <path d="M10 11v6M14 11v6"/>
             <path d="M9 6V4h6v2"/>
           </svg>
+          Clear All
         </button>
       </div>
       <!-- Row 3: Search -->
@@ -678,105 +715,107 @@
 
       <!-- Provider tabs -->
       <div class="provider-tabs">
-        <button class="provider-tab active" id="tabGemini" data-tab="gemini">Google AI Studio</button>
-        <button class="provider-tab" id="tabOpenRouter" data-tab="openrouter">OpenRouter</button>
+        <button class="provider-tab active" id="tabOpenRouter" data-tab="openrouter">OpenRouter</button>
+        <button class="provider-tab" id="tabGemini" data-tab="gemini">Google AI Studio</button>
       </div>
 
       <!-- Google AI Studio panel -->
-      <div id="panelGemini">
+      <div id="panelGemini" style="display:none">
         <div class="field">
-          <label class="field-label" for="geminiKey">API Key</label>
-          <p class="field-hint">Get a free key at <a href="https://aistudio.google.com/api-keys" target="_blank" style="color:inherit;text-decoration:underline;text-underline-offset:2px">aistudio.google.com/api-keys</a></p>
+          <label class="field-label" for="geminiKey">API Key — <a href="https://aistudio.google.com/api-keys" target="_blank" style="font-weight:400;color:var(--muted-fg);text-decoration:underline;text-underline-offset:2px">aistudio.google.com</a></label>
           <input class="field-input" id="geminiKey" type="password"
                  placeholder="AIzaSy…" spellcheck="false" autocomplete="off" />
         </div>
-        <div class="field">
-          <label class="field-label" for="modelSelectGemini">Resume model</label>
-          <select class="field-input" id="modelSelectGemini">
-            <optgroup label="Gemini 3.1">
-              <option value="gemini-flash-latest">Gemini Flash Latest</option>
-              <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview</option>
-              <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
-              <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite Preview</option>
-            </optgroup>
-            <optgroup label="Gemini 2.5">
-              <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-              <option value="gemini-2.5-flash-lite-preview-06-17">Gemini 2.5 Flash Lite</option>
-              <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-            </optgroup>
-            <optgroup label="Gemini 2.0">
-              <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
-            </optgroup>
-          </select>
-        </div>
-        <div class="field">
-          <label class="field-label" for="scoringModelSelectGemini">Scoring model</label>
-          <select class="field-input" id="scoringModelSelectGemini">
-            <optgroup label="Gemini 3.1">
-              <option value="gemini-flash-latest">Gemini Flash Latest</option>
-              <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview</option>
-              <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
-              <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite Preview</option>
-            </optgroup>
-            <optgroup label="Gemini 2.5">
-              <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-              <option value="gemini-2.5-flash-lite-preview-06-17">Gemini 2.5 Flash Lite</option>
-              <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-            </optgroup>
-            <optgroup label="Gemini 2.0">
-              <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
-            </optgroup>
-          </select>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div class="field">
+            <label class="field-label" for="modelSelectGemini">Resume model</label>
+            <select class="field-input" id="modelSelectGemini">
+              <optgroup label="Gemini 3.1">
+                <option value="gemini-flash-latest">Gemini Flash Latest</option>
+                <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview</option>
+                <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
+                <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite Preview</option>
+              </optgroup>
+              <optgroup label="Gemini 2.5">
+                <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                <option value="gemini-2.5-flash-lite-preview-06-17">Gemini 2.5 Flash Lite</option>
+                <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+              </optgroup>
+              <optgroup label="Gemini 2.0">
+                <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+              </optgroup>
+            </select>
+          </div>
+          <div class="field">
+            <label class="field-label" for="scoringModelSelectGemini">Scoring model</label>
+            <select class="field-input" id="scoringModelSelectGemini">
+              <optgroup label="Gemini 3.1">
+                <option value="gemini-flash-latest">Gemini Flash Latest</option>
+                <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview</option>
+                <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
+                <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite Preview</option>
+              </optgroup>
+              <optgroup label="Gemini 2.5">
+                <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                <option value="gemini-2.5-flash-lite-preview-06-17">Gemini 2.5 Flash Lite</option>
+                <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+              </optgroup>
+              <optgroup label="Gemini 2.0">
+                <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+              </optgroup>
+            </select>
+          </div>
         </div>
       </div>
 
       <!-- OpenRouter panel -->
-      <div id="panelOpenRouter" style="display:none">
+      <div id="panelOpenRouter">
         <div class="field">
-          <label class="field-label" for="openrouterKey">API Key</label>
-          <p class="field-hint">Get a free key at <a href="https://openrouter.ai" target="_blank" style="color:inherit;text-decoration:underline;text-underline-offset:2px">openrouter.ai</a></p>
+          <label class="field-label" for="openrouterKey">API Key — <a href="https://openrouter.ai/workspaces/default/keys" target="_blank" style="font-weight:400;color:var(--muted-fg);text-decoration:underline;text-underline-offset:2px">openrouter.ai</a></label>
           <input class="field-input" id="openrouterKey" type="password"
                  placeholder="sk-or-…" spellcheck="false" autocomplete="off" />
         </div>
-        <div class="field">
-          <label class="field-label" for="modelSelectOR">Resume model</label>
-          <select class="field-input" id="modelSelectOR">
-            <optgroup label="Google">
-              <option value="google/gemini-3.0-flash">Gemini 3.0 Flash</option>
-              <option value="google/gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
-            </optgroup>
-            <optgroup label="DeepSeek">
-              <option value="deepseek/deepseek-v4-flash">DeepSeek V4 Flash</option>
-            </optgroup>
-            <optgroup label="OpenAI">
-              <option value="openai/gpt-4.1-nano">GPT-4.1 Nano</option>
-              <option value="openai/gpt-5.4">GPT-5.4</option>
-              <option value="openai/gpt-5.4-mini">GPT-5.4 Mini</option>
-            </optgroup>
-            <optgroup label="Anthropic">
-              <option value="anthropic/claude-sonnet-4.6">Claude Sonnet 4.6</option>
-            </optgroup>
-          </select>
-        </div>
-        <div class="field">
-          <label class="field-label" for="scoringModelSelectOR">Scoring model</label>
-          <select class="field-input" id="scoringModelSelectOR">
-            <optgroup label="Google">
-              <option value="google/gemini-3.0-flash">Gemini 3.0 Flash</option>
-              <option value="google/gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
-            </optgroup>
-            <optgroup label="DeepSeek">
-              <option value="deepseek/deepseek-v4-flash">DeepSeek V4 Flash</option>
-            </optgroup>
-            <optgroup label="OpenAI">
-              <option value="openai/gpt-4.1-nano">GPT-4.1 Nano</option>
-              <option value="openai/gpt-5.4">GPT-5.4</option>
-              <option value="openai/gpt-5.4-mini">GPT-5.4 Mini</option>
-            </optgroup>
-            <optgroup label="Anthropic">
-              <option value="anthropic/claude-sonnet-4.6">Claude Sonnet 4.6</option>
-            </optgroup>
-          </select>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div class="field">
+            <label class="field-label" for="modelSelectOR">Resume model</label>
+            <select class="field-input" id="modelSelectOR">
+              <optgroup label="Google">
+                <option value="google/gemini-3.0-flash">Gemini 3.0 Flash</option>
+                <option value="google/gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
+              </optgroup>
+              <optgroup label="DeepSeek">
+                <option value="deepseek/deepseek-v4-flash">DeepSeek V4 Flash</option>
+              </optgroup>
+              <optgroup label="OpenAI">
+                <option value="openai/gpt-4.1-nano">GPT-4.1 Nano</option>
+  <option value="openai/gpt-5.4">GPT-5.4</option>
+                <option value="openai/gpt-5.4-mini">GPT-5.4 Mini</option>
+              </optgroup>
+              <optgroup label="Anthropic">
+                <option value="anthropic/claude-sonnet-4.6">Claude Sonnet 4.6</option>
+              </optgroup>
+            </select>
+          </div>
+          <div class="field">
+            <label class="field-label" for="scoringModelSelectOR">Scoring model</label>
+            <select class="field-input" id="scoringModelSelectOR">
+              <optgroup label="Google">
+                <option value="google/gemini-3.0-flash">Gemini 3.0 Flash</option>
+                <option value="google/gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
+              </optgroup>
+              <optgroup label="DeepSeek">
+                <option value="deepseek/deepseek-v4-flash">DeepSeek V4 Flash</option>
+              </optgroup>
+              <optgroup label="OpenAI">
+                <option value="openai/gpt-4.1-nano">GPT-4.1 Nano</option>
+  <option value="openai/gpt-5.4">GPT-5.4</option>
+                <option value="openai/gpt-5.4-mini">GPT-5.4 Mini</option>
+              </optgroup>
+              <optgroup label="Anthropic">
+                <option value="anthropic/claude-sonnet-4.6">Claude Sonnet 4.6</option>
+              </optgroup>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -786,51 +825,39 @@
       </div>
 
       <div class="field">
-        <label class="field-label">Resume File</label>
-        <p class="field-hint">Upload your resume PDF, .tex, or .docx file. Tailored resumes are generated in the same format.</p>
-        <label class="file-input-btn" for="resumeUpload">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="7 10 12 15 17 10"/>
-            <line x1="12" y1="15" x2="12" y2="3"/>
-          </svg>
-          <span id="fileInputText">Choose PDF file…</span>
-        </label>
+        <div style="display:flex;gap:8px;align-items:flex-start">
+          <label class="file-input-btn" for="resumeUpload" style="flex:1">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            <span id="fileInputText">Choose file…</span>
+          </label>
+          <button class="btn btn-outline btn-sm" id="genProfileBtn" disabled style="white-space:nowrap;flex-shrink:0">Generate Profile</button>
+        </div>
         <input type="file" accept=".pdf,.tex,.docx" id="resumeUpload" style="position:absolute;opacity:0;width:0;height:0;">
         <p class="upload-status" id="uploadStatus"></p>
-        <button class="btn btn-outline btn-sm" id="genProfileBtn" disabled>Generate Profile</button>
       </div>
 
       <div class="field">
         <label class="field-label" for="candidateProfileArea">Candidate Profile</label>
-        <p class="field-hint">Auto-generated from your resume. Edit and save to customise.</p>
-        <textarea id="candidateProfileArea" class="field-input" rows="6"
+        <textarea id="candidateProfileArea" class="field-input" rows="4"
           placeholder="Upload your resume above to generate a profile…"></textarea>
       </div>
 
       <div class="field">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-          <label class="field-label" for="resumePromptArea">Resume Generation Prompt</label>
-          <button class="btn btn-outline btn-sm" id="resetPromptBtn" style="height:26px;padding:0 10px;font-size:11px">Reset to default</button>
+          <label class="field-label" for="resumePromptArea">Generation Prompt</label>
+          <button class="btn btn-outline btn-sm" id="resetPromptBtn" style="height:26px;padding:0 10px;font-size:11px">Reset</button>
         </div>
-        <p class="field-hint">Instructions sent to the AI when generating tailored resumes. Format-specific rules are appended automatically.</p>
-        <textarea id="resumePromptArea" class="field-input" rows="8" placeholder="Loading…"></textarea>
+        <textarea id="resumePromptArea" class="field-input" rows="5" placeholder="Loading…"></textarea>
       </div>
 
       <div class="settings-footer">
-        <button class="btn btn-primary btn-sm" id="saveSettingsBtn">Save settings</button>
         <span class="save-ok" id="saveOk">✓ Saved</span>
-      </div>
-
-      <!-- Data section -->
-      <div class="settings-section" style="margin-top:6px">
-        <span>Data</span><hr>
-      </div>
-
-      <div class="field">
-        <label class="field-label">Generated Resumes</label>
-        <p class="field-hint">Clear all cached tailored resumes so they can be regenerated.</p>
-        <button class="btn btn-ghost btn-sm" id="resetResumesBtn">Reset Generated Resumes</button>
+        <div style="flex:1"></div>
+        <button class="btn btn-ghost btn-sm" id="resetResumesBtn">Reset Resumes</button>
       </div>
 
     </div>

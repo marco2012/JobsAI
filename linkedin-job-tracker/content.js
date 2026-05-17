@@ -220,6 +220,8 @@ async function addTrackButton(panel, jobId) {
 
 // --- Main scan ---
 
+let _retryTimer = null;
+
 function processPage() {
   const jobId = getJobIdFromUrl();
   if (!jobId) return;
@@ -234,8 +236,16 @@ function processPage() {
   // Remove stale button from a previous job
   existing?.remove();
 
-  if (!findSaveButton(panel)) return; // detail panel still loading
+  if (!findSaveButton(panel)) {
+    // Panel is present but Save button hasn't rendered yet — retry directly
+    // rather than relying on the debounced MutationObserver (which LinkedIn's
+    // frequent DOM updates keep resetting, causing the button to appear late).
+    clearTimeout(_retryTimer);
+    _retryTimer = setTimeout(processPage, 250);
+    return;
+  }
 
+  clearTimeout(_retryTimer);
   addTrackButton(panel, jobId);
 }
 
@@ -456,7 +466,7 @@ processPage();
 let debounce;
 const observer = new MutationObserver(() => {
   clearTimeout(debounce);
-  debounce = setTimeout(processPage, 400);
+  debounce = setTimeout(processPage, 200);
 });
 observer.observe(document.body, { childList: true, subtree: true });
 
@@ -466,6 +476,6 @@ new MutationObserver(() => {
   if (location.href !== lastUrl) {
     lastUrl = location.href;
     // Give LinkedIn time to swap in the new detail panel content
-    setTimeout(processPage, 900);
+    setTimeout(processPage, 500);
   }
 }).observe(document, { subtree: true, childList: true });

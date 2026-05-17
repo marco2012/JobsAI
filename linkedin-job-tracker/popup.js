@@ -187,6 +187,7 @@ async function render() {
         ${genError ? `<p class="job-generating" style="color:var(--destructive)">⚠ ${esc(genError)}</p>` : ''}
       </div>
       <button class="${genBtnClass}" data-url="${esc(job.url)}" title="${esc(genBtnTitle)}" ${genBtnDisabled ? 'disabled' : ''}>${genBtnContent}</button>
+      ${hasResume ? `<button class="job-regen-btn" data-url="${esc(job.url)}" title="Clear and regenerate resume"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.93"/></svg></button>` : ''}
       <button class="job-remove" data-url="${esc(job.url)}" title="Remove">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
@@ -247,7 +248,39 @@ async function render() {
         resumeText: local.resumeText,
         apiKey: live.openrouterKey,
         geminiKey: live.geminiKey,
-        model: live.selectedModel || 'gemini-2.5-flash',
+        model: live.selectedModel || 'openai/gpt-5.4-mini',
+        format,
+        customPrompt,
+      });
+      await render();
+    });
+  });
+
+  list.querySelectorAll('.job-regen-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const job = pageJobs.find(j => j.url === btn.dataset.url);
+      if (!job) return;
+      // Clear stored resume then trigger a fresh generation
+      const { generatedResumes: stored = {} } = await chrome.storage.local.get('generatedResumes');
+      delete stored[job.url];
+      generatedResumes.delete(job.url);
+      await chrome.storage.local.set({ generatedResumes: stored });
+
+      const local = await loadLocalResumeData();
+      if (!local.resumeText) return;
+      const live = getLiveSettings();
+      const format = local.resumeFormat || 'pdf';
+      resumeGenerations[job.url] = { status: 'pending', startedAt: Date.now() };
+      await chrome.storage.local.set({ resumeGenerations: { ...resumeGenerations } });
+      const customPrompt = local.resumePrompt || DEFAULT_RESUME_PROMPT;
+      chrome.runtime.sendMessage({
+        action: 'generateResume',
+        jobUrl: job.url,
+        job,
+        resumeText: local.resumeText,
+        apiKey: live.openrouterKey,
+        geminiKey: live.geminiKey,
+        model: live.selectedModel || 'openai/gpt-5.4-mini',
         format,
         customPrompt,
       });
@@ -510,25 +543,26 @@ function getScoringModel() {
     : document.getElementById('scoringModelSelectGemini').value;
 }
 
-function persistModels() {
-  chrome.storage.sync.set({ selectedModel: getSelectedModel(), scoringModel: getScoringModel() });
+
+let _autoSaveTimer = null;
+function scheduleAutoSave() {
+  clearTimeout(_autoSaveTimer);
+  _autoSaveTimer = setTimeout(() => saveSettingsUI(), 600);
 }
 
 function initProviderTabs() {
   document.querySelectorAll('.provider-tab').forEach(tab => {
     tab.addEventListener('click', () => {
       switchProviderTab(tab.dataset.tab);
-      persistModels();
+      scheduleAutoSave();
     });
   });
-  document.getElementById('modelSelectGemini').addEventListener('change', persistModels);
-  document.getElementById('modelSelectOR').addEventListener('change', persistModels);
-  document.getElementById('scoringModelSelectGemini').addEventListener('change', persistModels);
-  document.getElementById('scoringModelSelectOR').addEventListener('change', persistModels);
-  document.getElementById('geminiKey').addEventListener('blur', () =>
-    chrome.storage.sync.set({ geminiKey: document.getElementById('geminiKey').value.trim() }));
-  document.getElementById('openrouterKey').addEventListener('blur', () =>
-    chrome.storage.sync.set({ openrouterKey: document.getElementById('openrouterKey').value.trim() }));
+  document.getElementById('modelSelectGemini').addEventListener('change', scheduleAutoSave);
+  document.getElementById('modelSelectOR').addEventListener('change', scheduleAutoSave);
+  document.getElementById('scoringModelSelectGemini').addEventListener('change', scheduleAutoSave);
+  document.getElementById('scoringModelSelectOR').addEventListener('change', scheduleAutoSave);
+  document.getElementById('geminiKey').addEventListener('input', scheduleAutoSave);
+  document.getElementById('openrouterKey').addEventListener('input', scheduleAutoSave);
 }
 
 function getSelectedModel() {
@@ -553,7 +587,7 @@ async function loadSettingsUI() {
   document.getElementById('openrouterKey').value = sync.openrouterKey || '';
   document.getElementById('geminiKey').value = sync.geminiKey || '';
 
-  const model = sync.selectedModel || 'google/gemini-3.0-flash';
+  const model = sync.selectedModel || 'openai/gpt-5.4-mini';
   const isGemini = !model.includes('/');
   switchProviderTab(isGemini ? 'gemini' : 'openrouter');
   if (isGemini) {
@@ -562,7 +596,7 @@ async function loadSettingsUI() {
     document.getElementById('scoringModelSelectGemini').value = sm;
   } else {
     document.getElementById('modelSelectOR').value = model;
-    const sm = sync.scoringModel && sync.scoringModel.includes('/') ? sync.scoringModel : model;
+    const sm = sync.scoringModel && sync.scoringModel.includes('/') ? sync.scoringModel : 'google/gemini-3.1-flash-lite';
     document.getElementById('scoringModelSelectOR').value = sm;
   }
 
@@ -759,7 +793,7 @@ function initScoreAll() {
       return;
     }
 
-    const scoreModel = getScoringModel() || live.selectedModel || 'gemini-2.5-flash';
+    const scoreModel = getScoringModel() || live.selectedModel || 'google/gemini-3.1-flash-lite';
     const { key: scoreKey, provider: scoreProvider } = resolveApi(scoreModel, live.openrouterKey, live.geminiKey);
     if (!scoreKey?.trim()) {
       setProgressVisible(true);
@@ -858,16 +892,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     await saveJobs([]);
     render();
   });
-  document.getElementById('saveSettingsBtn').addEventListener('click', saveSettingsUI);
+  document.getElementById('candidateProfileArea').addEventListener('input', scheduleAutoSave);
+  document.getElementById('resumePromptArea').addEventListener('input', scheduleAutoSave);
 
   document.getElementById('genProfileBtn').addEventListener('click', async () => {
     const btn = document.getElementById('genProfileBtn');
     const statusEl = document.getElementById('uploadStatus');
     const spinner = '<span class="spinner"></span>';
-    const [live, local] = await Promise.all([Promise.resolve(getLiveSettings()), loadLocalResumeData()]);
+    const [sync, local] = await Promise.all([loadSyncSettings(), loadLocalResumeData()]);
     if (!local.resumeText) return;
-    const selModel = live.selectedModel || 'gemini-2.5-flash';
-    const { key: activeKey, provider } = resolveApi(selModel, live.openrouterKey, live.geminiKey);
+    // Explicitly use the resume model (not scoring model)
+    const resumeModel = getSelectedModel() || sync.selectedModel || 'openai/gpt-5.4-mini';
+    const openrouterKey = document.getElementById('openrouterKey').value.trim() || sync.openrouterKey || '';
+    const geminiKey     = document.getElementById('geminiKey').value.trim()     || sync.geminiKey     || '';
+    const { key: activeKey, provider } = resolveApi(resumeModel, openrouterKey, geminiKey);
     if (!activeKey) {
       statusEl.textContent = `Please set your ${provider} API key first.`;
       statusEl.style.color = 'var(--destructive)';
@@ -877,7 +915,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     statusEl.style.color = 'var(--muted-fg)';
     statusEl.innerHTML = `${spinner}Generating candidate profile…`;
     try {
-      const profile = await generateCandidateProfile(local.resumeText, live.openrouterKey, live.geminiKey, selModel);
+      const profile = await generateCandidateProfile(local.resumeText, openrouterKey, geminiKey, resumeModel);
       document.getElementById('candidateProfileArea').value = profile;
       await saveSyncSettings({ candidateProfile: profile });
       statusEl.innerHTML = '';
