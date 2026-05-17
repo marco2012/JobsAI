@@ -319,35 +319,6 @@ async function waitForDescription(timeout = 8000) {
   return { panel, desc: panel ? getDescription(panel) : '' };
 }
 
-// Parse title / company / location from a jobs-tracker card anchor's innerText.
-// Structured format (preferred): "Title\n\nCompany · Location\n\nDate"
-function getTrackerJobInfo(anchor) {
-  const raw = anchor.innerText || '';
-  const jobId = anchor.href.match(/\/jobs\/view\/(\d+)/)?.[1] || '';
-  const url = `https://www.linkedin.com/jobs/view/${jobId}/`;
-
-  const parts = raw.split(/\n\n+/).map(p => p.replace(/\n/g, ' ').trim()).filter(Boolean);
-  let title = '', company = '', location = '', postedDate = '';
-
-  if (parts.length >= 2) {
-    title = parts[0];
-    const dotIdx = parts[1].indexOf(' · ');
-    if (dotIdx !== -1) {
-      company  = parts[1].slice(0, dotIdx).trim();
-      location = parts[1].slice(dotIdx + 3).trim();
-    } else {
-      company = parts[1];
-    }
-    if (parts[2]) postedDate = parseRelativeDate(parts[2]);
-  } else {
-    // Single-line fallback: "Title Company · Location Date"
-    const dotIdx = raw.indexOf(' · ');
-    title    = dotIdx !== -1 ? raw.slice(0, dotIdx).trim() : raw.slice(0, 80).trim();
-    location = dotIdx !== -1 ? raw.slice(dotIdx + 3).replace(/\s*(reposted\s+|just now|\d+\s*(day|hour|week|month)s?\s*ago).*/i, '').trim() : '';
-  }
-
-  return { jobId, url, title, company, location, postedDate };
-}
 
 async function trackAllVisible(port, isStopped) {
   // Single job view page — track the one displayed job
@@ -371,7 +342,12 @@ async function trackAllVisible(port, isStopped) {
     return;
   }
 
-  const isTrackerPage = location.pathname.startsWith('/jobs-tracker');
+  if (location.pathname.startsWith('/jobs-tracker')) {
+    alert('To save a job, open it individually by clicking on it — the description is not available from this list view.');
+    port.postMessage({ type: 'done', done: 0, total: 0, skipped: 0, failed: 0 });
+    return;
+  }
+
   const cards = getJobCards();
 
   if (!cards.length) {
@@ -384,32 +360,6 @@ async function trackAllVisible(port, isStopped) {
   let aborted = false;
   port.onDisconnect.addListener(() => { aborted = true; });
   port.postMessage({ type: 'progress', done, total, skipped, failed });
-
-  if (isTrackerPage) {
-    // Jobs-tracker links open target="_blank" (new tab) so clicking never changes the
-    // current tab's URL. Extract title/company/location from card text directly and
-    // save without any navigation. Description is not available here.
-    for (const card of cards) {
-      if (aborted) break;
-      if (isStopped()) {
-        port.postMessage({ type: 'stopped', done: done - skipped - failed, skipped, failed, total });
-        return;
-      }
-      try {
-        const info = getTrackerJobInfo(card);
-        if (!info.jobId) { failed++; done++; port.postMessage({ type: 'progress', done, total, skipped, failed }); continue; }
-        if (await isTracked(info.jobId)) { skipped++; done++; port.postMessage({ type: 'progress', done, total, skipped, failed }); continue; }
-        await toggleJob(info.jobId, info.title, info.company, info.url, '', info.location, info.postedDate, '');
-        done++;
-        port.postMessage({ type: 'progress', done, total, skipped, failed });
-      } catch {
-        failed++; done++;
-        port.postMessage({ type: 'progress', done, total, skipped, failed });
-      }
-    }
-    if (!aborted) port.postMessage({ type: 'done', done: done - skipped - failed, skipped, failed, total });
-    return;
-  }
 
   // Search / collections / recommended pages: click each card and wait for the detail panel
   for (let i = 0; i < total; i++) {
@@ -472,72 +422,7 @@ async function trackAllVisible(port, isStopped) {
 
 // --- jobs-tracker page: Track button on each saved card ---
 
-async function initTrackerButtons() {
-  if (!location.pathname.startsWith('/jobs-tracker')) return;
-  const cards = getJobCards();
-  for (const card of cards) {
-    const info = getTrackerJobInfo(card);
-    if (!info.jobId) continue;
-    const container = card.closest('li') || card.parentElement;
-    if (!container) continue;
-    if (container.querySelector(`.ljt-tracker-btn[data-job-id="${info.jobId}"]`)) continue;
-    // Remove any stale button from a previous render
-    container.querySelector('.ljt-tracker-btn')?.remove();
-    if (getComputedStyle(container).position === 'static') container.style.position = 'relative';
-
-    const tracked = await isTracked(info.jobId);
-    const btn = document.createElement('button');
-    btn.className = `${BTN_CLASS} ljt-tracker-btn`;
-    btn.dataset.jobId = info.jobId;
-    applyState(btn, tracked);
-
-    btn.addEventListener('click', async e => {
-      e.preventDefault();
-      e.stopPropagation();
-      // Extension context invalidated (page still open after reload) — bail gracefully
-      if (!chrome.runtime?.id) { btn.textContent = 'Reload page'; return; }
-      try {
-        if (btn.dataset.tracked === 'true') {
-          btn.disabled = true;
-          const jobs = await loadJobs();
-          const idx = jobs.findIndex(j => j.id === info.jobId);
-          if (idx !== -1) { jobs.splice(idx, 1); await saveJobs(jobs); }
-          applyState(btn, false);
-          btn.disabled = false;
-          return;
-        }
-        btn.disabled = true;
-        btn.textContent = 'Opening…';
-        chrome.runtime.sendMessage({
-          action: 'trackJobViaTab',
-          jobUrl: info.url,
-          jobId: info.jobId,
-          title: info.title,
-          company: info.company,
-          location: info.location,
-          postedDate: info.postedDate,
-        });
-      } catch (err) {
-        if (err.message?.includes('Extension context invalidated')) {
-          btn.textContent = 'Reload page';
-        } else {
-          btn.textContent = '⚠ Error';
-          btn.disabled = false;
-          setTimeout(() => applyState(btn, btn.dataset.tracked === 'true'), 2000);
-        }
-      }
-    });
-
-    // Insert after the "Add note" button if present, otherwise append
-    const addNoteBtn = Array.from(container.querySelectorAll('button')).find(b =>
-      /add note/i.test(b.textContent?.trim()) || /add note/i.test(b.getAttribute('aria-label') || '')
-    );
-    if (addNoteBtn) addNoteBtn.insertAdjacentElement('afterend', btn);
-    else container.appendChild(btn);
-  }
-}
-
-// Direct messages from background (job tracked/failed callbacks)
+// Direct messages from background
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === 'extractJobData') {
     waitForDescription(8000).then(({ panel, desc }) => {
@@ -554,18 +439,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     });
     return true; // async response
   }
-  if (msg.action === 'jobTracked') {
-    const btn = document.querySelector(`.ljt-tracker-btn[data-job-id="${msg.jobId}"]`);
-    if (btn) { applyState(btn, true); btn.disabled = false; }
-  }
-  if (msg.action === 'jobTrackFailed') {
-    const btn = document.querySelector(`.ljt-tracker-btn[data-job-id="${msg.jobId}"]`);
-    if (btn) {
-      btn.textContent = '⚠ Failed';
-      btn.disabled = false;
-      setTimeout(() => applyState(btn, false), 2000);
-    }
-  }
 });
 
 chrome.runtime.onConnect.addListener(port => {
@@ -580,13 +453,12 @@ chrome.runtime.onConnect.addListener(port => {
 // --- Init ---
 
 processPage();
-initTrackerButtons();
 
 // Re-scan on DOM mutations (detail panel loads asynchronously)
 let debounce;
 const observer = new MutationObserver(() => {
   clearTimeout(debounce);
-  debounce = setTimeout(() => { processPage(); initTrackerButtons(); }, 200);
+  debounce = setTimeout(processPage, 200);
 });
 observer.observe(document.body, { childList: true, subtree: true });
 
@@ -595,6 +467,6 @@ let lastUrl = location.href;
 new MutationObserver(() => {
   if (location.href !== lastUrl) {
     lastUrl = location.href;
-    setTimeout(() => { processPage(); initTrackerButtons(); }, 500);
+    setTimeout(processPage, 500);
   }
 }).observe(document, { subtree: true, childList: true });

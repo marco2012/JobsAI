@@ -53,10 +53,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     notify(msg.title, msg.message);
     sendResponse({});
   }
-  if (msg.action === 'trackJobViaTab') {
-    handleTrackJobViaTab(msg, sender).catch(console.error);
-    sendResponse({ queued: true });
-  }
   return false;
 });
 
@@ -359,52 +355,3 @@ async function handleTrackAll({ tabId }) {
   trackingPort.postMessage({ action: 'trackAllVisible' });
 }
 
-// ── Track single job by opening a background tab ──────────────────────────────
-
-async function handleTrackJobViaTab({ jobUrl, jobId, title, company, location, postedDate }, sender) {
-  const tab = await chrome.tabs.create({ url: jobUrl, active: false });
-
-  // Wait for page to finish loading
-  await new Promise(resolve => {
-    const onUpdated = (tabId, info) => {
-      if (tabId === tab.id && info.status === 'complete') {
-        chrome.tabs.onUpdated.removeListener(onUpdated);
-        resolve();
-      }
-    };
-    chrome.tabs.onUpdated.addListener(onUpdated);
-  });
-
-  // Give LinkedIn and the content script time to render
-  await new Promise(r => setTimeout(r, 1000));
-
-  let jobData = null;
-  try {
-    const resp = await chrome.tabs.sendMessage(tab.id, { action: 'extractJobData' });
-    jobData = resp?.jobData;
-  } catch (err) {
-    console.error('[trackViaTab] extract failed:', err.message);
-  }
-
-  try { await chrome.tabs.remove(tab.id); } catch {}
-
-  const jobs = await loadJobs();
-  if (!jobs.some(j => j.id === jobId)) {
-    jobs.push({
-      id: jobId,
-      title: jobData?.title || title,
-      company: jobData?.company || company,
-      url: jobUrl,
-      description: jobData?.description || '',
-      location: jobData?.location || location,
-      postedDate: jobData?.postedDate || postedDate,
-      applicants: jobData?.applicants || '',
-      dateAdded: new Date().toISOString(),
-    });
-    await saveJobs(jobs);
-  }
-
-  if (sender.tab?.id) {
-    try { chrome.tabs.sendMessage(sender.tab.id, { action: 'jobTracked', jobId }); } catch {}
-  }
-}
