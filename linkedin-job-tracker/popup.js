@@ -96,7 +96,7 @@ async function render() {
   scoreAllBtn.title    = !hasProfile ? 'Upload your resume in Settings first' : '';
 
   if (jobs.length === 0) {
-    subtitle.textContent = '0 jobs tracked';
+    subtitle.textContent = `0 jobs tracked · v${EXT_VERSION}`;
     list.innerHTML = `
       <div class="empty">
         <div class="empty-icon">📋</div>
@@ -125,9 +125,9 @@ async function render() {
     : jobs;
 
   if (q) {
-    subtitle.textContent = `${pageJobs.length} of ${jobs.length} job${jobs.length !== 1 ? 's' : ''}`;
+    subtitle.textContent = `${pageJobs.length} of ${jobs.length} job${jobs.length !== 1 ? 's' : ''} · v${EXT_VERSION}`;
   } else {
-    subtitle.textContent = `${jobs.length} job${jobs.length !== 1 ? 's' : ''} tracked`;
+    subtitle.textContent = `${jobs.length} job${jobs.length !== 1 ? 's' : ''} tracked · v${EXT_VERSION}`;
   }
 
   if (pageJobs.length === 0) {
@@ -822,6 +822,8 @@ function initScoreAll() {
 }
 
 // ── Init ─────────────────────────────────────────────────────────────────────
+
+const EXT_VERSION = chrome.runtime.getManifest().version;
 
 document.addEventListener('DOMContentLoaded', async () => {
   pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('pdf.worker.min.js');
