@@ -147,7 +147,7 @@ Rules:
 - Naturally incorporate the job's keywords into bullet descriptions
 - Cut anything not relevant to this specific role
 - After drafting, review and add any key job requirements that are missing
-- STRICT LENGTH LIMIT: the resume must fit in 1.5 pages maximum — approximately 500 words total. Cut aggressively. Max 4 bullets per role. Omit old or irrelevant roles entirely.`;
+- STRICT LENGTH LIMIT: the resume must fit in 1 page maximum — approximately 400 words total. Cut aggressively. Max 3 bullets per role. Omit old or irrelevant roles entirely.`;
 
   const { url, key } = resolveApiKey(model, apiKey, geminiKey);
   console.log(`[resume] Generating for model=${model} format=${format}`);

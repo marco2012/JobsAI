@@ -267,6 +267,8 @@
       white-space: nowrap;
       color: inherit;
       text-decoration: none;
+      min-width: 0;
+      flex: 1;
     }
     .job-title-text:hover { text-decoration: underline; }
     .desc-ok {
@@ -920,6 +922,20 @@
                    placeholder="provider/model-name" spellcheck="false" autocomplete="off"
                    style="display:none;margin-top:4px" />
           </div>
+        </div>
+      </div>
+
+      <!-- Scoring section -->
+      <div class="settings-section" style="margin-top:6px">
+        <span>Scoring</span><hr>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="scoreThresholdInput">Min score threshold</label>
+        <div style="display:flex;align-items:center;gap:10px">
+          <input class="field-input" id="scoreThresholdInput" type="number" min="1" max="99"
+                 style="width:80px" />
+          <span class="field-hint">Jobs below this score are folded in the list</span>
         </div>
       </div>
 

@@ -9,7 +9,7 @@ Rules:
 - Naturally incorporate the job's keywords into bullet descriptions
 - Cut anything not relevant to this specific role
 - After drafting, review and add any key job requirements that are missing
-- STRICT LENGTH LIMIT: the resume must fit in 1.5 pages maximum — approximately 500 words total. Cut aggressively. Max 4 bullets per role. Omit old or irrelevant roles entirely.`;
+- STRICT LENGTH LIMIT: the resume must fit in 1 page maximum — approximately 400 words total. Cut aggressively. Max 3 bullets per role. Omit old or irrelevant roles entirely.`;
 
 // ── Resume cache + in-progress generation state ───────────────────────────────
 const generatedResumes = new Map();
@@ -47,7 +47,7 @@ function saveSettings(s) {
   return new Promise(r => chrome.storage.local.set({ settings: s }, r));
 }
 function loadSyncSettings() {
-  return new Promise(r => chrome.storage.sync.get(['openrouterKey', 'geminiKey', 'selectedModel', 'scoringModel', 'candidateProfile'], d => r(d)));
+  return new Promise(r => chrome.storage.sync.get(['openrouterKey', 'geminiKey', 'selectedModel', 'scoringModel', 'candidateProfile', 'scoreThreshold'], d => r(d)));
 }
 function loadLocalResumeData() {
   return new Promise(r => chrome.storage.local.get(['resumeText', 'resumeFormat', 'resumeFilename', 'resumePrompt'], d => r(d)));
@@ -139,7 +139,7 @@ async function render() {
   // Filter by search query
   const q = searchQuery.toLowerCase();
   const pageJobs = q
-    ? jobs.filter(j => [j.title, j.company, j.location].some(s => (s || '').toLowerCase().includes(q)))
+    ? jobs.filter(j => [j.title, j.company, j.location, j.appStatus].some(s => (s || '').toLowerCase().includes(q)))
     : jobs;
 
   if (q) {
@@ -156,8 +156,9 @@ async function render() {
     return;
   }
 
-  const mainJobs = pageJobs.filter(j => typeof j.fit_score !== 'number' || j.fit_score >= 65);
-  const lowJobs  = pageJobs.filter(j => typeof j.fit_score === 'number' && j.fit_score < 65);
+  const threshold = typeof sync.scoreThreshold === 'number' ? sync.scoreThreshold : 70;
+  const mainJobs = pageJobs.filter(j => typeof j.fit_score !== 'number' || j.fit_score >= threshold);
+  const lowJobs  = pageJobs.filter(j => typeof j.fit_score === 'number' && j.fit_score < threshold);
 
   function jobHTML(job) {
     const chips = [];
@@ -166,7 +167,7 @@ async function render() {
     const score = job.fit_score;
     const scoreClass = score == null ? 'score-grey'
       : score >= 75 ? 'score-green'
-      : score >= 65 ? 'score-yellow'
+      : score >= threshold ? 'score-yellow'
       : 'score-red';
     const scoreLabel = score != null ? score : '–';
 
@@ -236,7 +237,7 @@ async function render() {
            style="transition:transform 0.2s;transform:rotate(${lowScoreFolded ? '0' : '180'}deg)">
         <polyline points="6 9 12 15 18 9"/>
       </svg>
-      ${lowJobs.length} low-score job${lowJobs.length !== 1 ? 's' : ''} below 65
+      ${lowJobs.length} low-score job${lowJobs.length !== 1 ? 's' : ''} below ${threshold}
     </button>
     ${lowScoreFolded ? '' : lowJobs.map(jobHTML).join('')}`;
 
@@ -707,6 +708,7 @@ async function loadSettingsUI() {
 
   document.getElementById('candidateProfileArea').value = sync.candidateProfile || '';
   document.getElementById('resumePromptArea').value = local.resumePrompt || DEFAULT_RESUME_PROMPT;
+  document.getElementById('scoreThresholdInput').value = typeof sync.scoreThreshold === 'number' ? sync.scoreThreshold : 70;
   if (local.resumeFilename) {
     document.getElementById('fileInputText').textContent = local.resumeFilename;
   }
@@ -720,8 +722,9 @@ async function saveSettingsUI() {
   const scoringModel = getScoringModel();
   const profile = document.getElementById('candidateProfileArea').value.trim();
   const resumePrompt = document.getElementById('resumePromptArea').value.trim() || DEFAULT_RESUME_PROMPT;
+  const scoreThreshold = Math.min(99, Math.max(1, parseInt(document.getElementById('scoreThresholdInput').value, 10) || 70));
   await Promise.all([
-    saveSyncSettings({ openrouterKey, geminiKey, selectedModel, scoringModel, candidateProfile: profile }),
+    saveSyncSettings({ openrouterKey, geminiKey, selectedModel, scoringModel, candidateProfile: profile, scoreThreshold }),
     saveLocalResumeData({ resumePrompt }),
   ]);
   flashSaved();
@@ -1012,6 +1015,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   document.getElementById('candidateProfileArea').addEventListener('input', scheduleAutoSave);
   document.getElementById('resumePromptArea').addEventListener('input', scheduleAutoSave);
+  document.getElementById('scoreThresholdInput').addEventListener('input', scheduleAutoSave);
 
   document.getElementById('genProfileBtn').addEventListener('click', async () => {
     const btn = document.getElementById('genProfileBtn');

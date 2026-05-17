@@ -50,18 +50,24 @@ function getCompany(panel) {
 }
 
 function getMetaSpans(panel) {
-  // Search page uses span.e0d2ec4d; recommended page uses span.tvm__text--low-emphasis
-  const spans = Array.from(panel?.querySelectorAll('span.e0d2ec4d') || [])
-    .map(s => s.innerText?.trim()).filter(Boolean);
-  if (spans.length) return spans;
-  return Array.from(panel?.querySelectorAll('span.tvm__text--low-emphasis') || [])
-    .map(s => s.innerText?.trim()).filter(Boolean);
+  const selectors = [
+    'span.e0d2ec4d',                                              // search results
+    'span.tvm__text--low-emphasis',                               // recommended
+    'span.tvm__text',                                             // broader tvm
+    '.job-details-jobs-unified-top-card__primary-description span', // unified top card
+    '.jobs-unified-top-card__subtitle-primary-grouping span',     // older layout
+  ];
+  for (const sel of selectors) {
+    const spans = Array.from(panel?.querySelectorAll(sel) || [])
+      .map(s => s.innerText?.trim()).filter(Boolean);
+    if (spans.length) return spans;
+  }
+  return [];
 }
 
 function getLocation(panel) {
-  return getMetaSpans(panel).find(t =>
-    !t.match(/\d+\s*(day|hour|week|month)s?\s*ago|reposted|just now|applicant|clicked apply/i)
-  ) || '';
+  const NON_LOCATION = /\d+\s*(day|hour|week|month)s?\s*ago|reposted|just now|applicant|clicked apply|·|full.?time|part.?time|contract|internship|entry.?level|mid.?senior|director.?level|executive.?level|\d+\s*(employee|follower)/i;
+  return getMetaSpans(panel).find(t => !NON_LOCATION.test(t)) || '';
 }
 
 function parseRelativeDate(text) {
