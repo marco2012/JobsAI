@@ -470,6 +470,87 @@ async function trackAllVisible(port, isStopped) {
   }
 }
 
+// --- jobs-tracker page: Track button on each saved card ---
+
+async function initTrackerButtons() {
+  if (!location.pathname.startsWith('/jobs-tracker')) return;
+  const cards = getJobCards();
+  for (const card of cards) {
+    const info = getTrackerJobInfo(card);
+    if (!info.jobId) continue;
+    const container = card.closest('li') || card.parentElement;
+    if (!container) continue;
+    if (container.querySelector(`.ljt-tracker-btn[data-job-id="${info.jobId}"]`)) continue;
+    // Remove any stale button from a previous render
+    container.querySelector('.ljt-tracker-btn')?.remove();
+    if (getComputedStyle(container).position === 'static') container.style.position = 'relative';
+
+    const tracked = await isTracked(info.jobId);
+    const btn = document.createElement('button');
+    btn.className = `${BTN_CLASS} ljt-tracker-btn`;
+    btn.dataset.jobId = info.jobId;
+    applyState(btn, tracked);
+
+    btn.addEventListener('click', async e => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (btn.dataset.tracked === 'true') {
+        btn.disabled = true;
+        const jobs = await loadJobs();
+        const idx = jobs.findIndex(j => j.id === info.jobId);
+        if (idx !== -1) { jobs.splice(idx, 1); await saveJobs(jobs); }
+        applyState(btn, false);
+        btn.disabled = false;
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = 'Opening…';
+      chrome.runtime.sendMessage({
+        action: 'trackJobViaTab',
+        jobUrl: info.url,
+        jobId: info.jobId,
+        title: info.title,
+        company: info.company,
+        location: info.location,
+        postedDate: info.postedDate,
+      });
+    });
+
+    container.appendChild(btn);
+  }
+}
+
+// Direct messages from background (job tracked/failed callbacks)
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.action === 'extractJobData') {
+    waitForDescription(8000).then(({ panel, desc }) => {
+      sendResponse({
+        jobData: panel ? {
+          title: getJobTitle(panel),
+          company: getCompany(panel),
+          description: desc,
+          location: getLocation(panel),
+          postedDate: getPostedDate(panel),
+          applicants: getApplicants(panel),
+        } : null,
+      });
+    });
+    return true; // async response
+  }
+  if (msg.action === 'jobTracked') {
+    const btn = document.querySelector(`.ljt-tracker-btn[data-job-id="${msg.jobId}"]`);
+    if (btn) { applyState(btn, true); btn.disabled = false; }
+  }
+  if (msg.action === 'jobTrackFailed') {
+    const btn = document.querySelector(`.ljt-tracker-btn[data-job-id="${msg.jobId}"]`);
+    if (btn) {
+      btn.textContent = '⚠ Failed';
+      btn.disabled = false;
+      setTimeout(() => applyState(btn, false), 2000);
+    }
+  }
+});
+
 chrome.runtime.onConnect.addListener(port => {
   if (port.name !== 'ljt-track-all') return;
   let stopRequested = false;
@@ -482,12 +563,13 @@ chrome.runtime.onConnect.addListener(port => {
 // --- Init ---
 
 processPage();
+initTrackerButtons();
 
 // Re-scan on DOM mutations (detail panel loads asynchronously)
 let debounce;
 const observer = new MutationObserver(() => {
   clearTimeout(debounce);
-  debounce = setTimeout(processPage, 200);
+  debounce = setTimeout(() => { processPage(); initTrackerButtons(); }, 200);
 });
 observer.observe(document.body, { childList: true, subtree: true });
 
@@ -496,7 +578,6 @@ let lastUrl = location.href;
 new MutationObserver(() => {
   if (location.href !== lastUrl) {
     lastUrl = location.href;
-    // Give LinkedIn time to swap in the new detail panel content
-    setTimeout(processPage, 500);
+    setTimeout(() => { processPage(); initTrackerButtons(); }, 500);
   }
 }).observe(document, { subtree: true, childList: true });
