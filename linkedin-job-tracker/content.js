@@ -350,6 +350,27 @@ function getTrackerJobInfo(anchor) {
 }
 
 async function trackAllVisible(port, isStopped) {
+  // Single job view page — track the one displayed job
+  if (location.pathname.match(/\/jobs\/view\/\d+/)) {
+    const jobId = getJobIdFromUrl();
+    if (!jobId) { port.postMessage({ type: 'error', message: 'Could not find job ID.' }); return; }
+    port.postMessage({ type: 'progress', done: 0, total: 1, skipped: 0, failed: 0 });
+    try {
+      if (await isTracked(jobId)) {
+        port.postMessage({ type: 'done', done: 0, total: 1, skipped: 1, failed: 0 });
+        return;
+      }
+      const { panel, desc } = await waitForDescription();
+      if (!panel) { port.postMessage({ type: 'done', done: 0, total: 1, skipped: 0, failed: 1 }); return; }
+      await toggleJob(jobId, getJobTitle(panel), getCompany(panel), getJobUrl(jobId),
+        desc, getLocation(panel), getPostedDate(panel), getApplicants(panel));
+      port.postMessage({ type: 'done', done: 1, total: 1, skipped: 0, failed: 0 });
+    } catch {
+      port.postMessage({ type: 'done', done: 0, total: 1, skipped: 0, failed: 1 });
+    }
+    return;
+  }
+
   const isTrackerPage = location.pathname.startsWith('/jobs-tracker');
   const cards = getJobCards();
 
