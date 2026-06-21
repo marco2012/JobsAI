@@ -17,6 +17,7 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.get('trackedJobs', ({ trackedJobs }) => {
     if (!trackedJobs) chrome.storage.local.set({ trackedJobs: [] });
   });
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 });
 
 // ── Message router ────────────────────────────────────────────────────────────
