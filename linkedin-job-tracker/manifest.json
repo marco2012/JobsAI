@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LinkedIn Job Tracker",
-  "version": "1.3",
+  "version": "1.4",
   "description": "Track LinkedIn jobs and export to jobs.xlsx for the resume pipeline",
   "permissions": ["storage", "downloads", "tabs", "notifications", "sidePanel"],
   "host_permissions": [

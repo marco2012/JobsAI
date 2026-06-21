@@ -6,7 +6,7 @@ A Chrome extension to track, score, and generate tailored resumes for LinkedIn j
 
 ## Install
 
-1. Download the latest release: [linkedin-job-tracker-v1.2.zip](https://github.com/marco2012/JobsAI/releases/tag/v1.2)
+1. Download the latest release: [linkedin-job-tracker-v1.4.zip](https://github.com/marco2012/JobsAI/releases/tag/v1.4)
 2. Unzip it
 3. Open Chrome → go to `chrome://extensions`
 4. Enable **Developer mode** (top-right toggle)
