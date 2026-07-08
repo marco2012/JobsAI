@@ -291,6 +291,12 @@ function getJobCards() {
   );
 }
 
+function getCardId(card) {
+  return card.dataset?.occludableJobId
+    || card.querySelector('a[href*="/jobs/view/"]')?.href.match(/\/jobs\/view\/(\d+)/)?.[1]
+    || null;
+}
+
 async function waitForPanelJob(previousJobId, timeout = 6000) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
@@ -366,9 +372,13 @@ async function trackAllVisible(port, isStopped) {
     return;
   }
 
+  // Snapshot IDs only, not DOM node references — LinkedIn's SPA re-renders the list on
+  // navigation and detaches old nodes, so a stale card reference silently no-ops on click.
+  const cardIds = cards.map(getCardId);
+
   let done = 0, skipped = 0, failed = 0;
   const errors = [];
-  const total = cards.length;
+  const total = cardIds.length;
   let aborted = false;
   const batchId = Date.now().toString();
   port.onDisconnect.addListener(() => { aborted = true; });
@@ -382,17 +392,21 @@ async function trackAllVisible(port, isStopped) {
       return;
     }
     try {
-      const preId = cards[i].dataset?.occludableJobId;
-      if (preId && await isTracked(preId)) {
-        console.log('[LJT] card', i, 'skipped: already tracked', { jobId: preId });
+      const cardJobId = cardIds[i];
+      if (cardJobId && await isTracked(cardJobId)) {
+        console.log('[LJT] card', i, 'skipped: already tracked', { jobId: cardJobId });
         skipped++; done++;
         port.postMessage({ type: 'progress', done, total, skipped, failed });
         continue;
       }
 
       const prevJobId = getJobIdFromUrl();
-      const cardHref = cards[i].querySelector('a[href*="/jobs/view/"]')?.href;
-      const cardJobId = preId || cardHref?.match(/\/jobs\/view\/(\d+)/)?.[1];
+
+      // Re-query the live DOM node for this card — LinkedIn's SPA re-renders the list on
+      // navigation, so the reference captured at snapshot time may already be detached.
+      const liveCard = (cardJobId && getJobCards().find(c => getCardId(c) === cardJobId))
+        || getJobCards()[i]
+        || cards[i];
 
       let jobId;
       if (cardJobId && cardJobId === prevJobId) {
@@ -400,11 +414,16 @@ async function trackAllVisible(port, isStopped) {
         jobId = prevJobId;
       } else {
         // On recommended/collections pages the card is an <li>; the inner <a> must be clicked
-        (cards[i].querySelector('a[href*="/jobs/view/"]') || cards[i]).click();
+        const clickTarget = liveCard.querySelector('a[href*="/jobs/view/"]') || liveCard;
+        // Virtualized lists only fully render cards near the viewport — force it into view first,
+        // otherwise the click can land off-target or on a not-yet-hydrated element.
+        clickTarget.scrollIntoView({ block: 'center' });
+        await sleep(150);
+        clickTarget.click();
         const result = await waitForPanelJob(prevJobId);
         if (!result) {
           const reason = 'panel/job did not load after click';
-          console.warn('[LJT] card', i, 'failed:', reason, { prevJobId, cardJobId });
+          console.warn('[LJT] card', i, 'failed:', reason, { prevJobId, cardJobId, urlAfterWait: location.href });
           errors.push(`Card ${i + 1}: ${reason}`);
           failed++; done++; port.postMessage({ type: 'progress', done, total, skipped, failed }); continue;
         }
