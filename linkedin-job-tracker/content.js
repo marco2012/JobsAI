@@ -297,14 +297,16 @@ function getCardId(card) {
     || null;
 }
 
-async function waitForPanelJob(previousJobId, timeout = 6000) {
+async function waitForPanelJob(previousJobId, timeout = 10000) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
     const jobId = getJobIdFromUrl();
     if (jobId) {
       const panel = getDetailPanel();
       const isViewPage = !!location.pathname.match(/\/jobs\/view\/\d+/);
-      const panelReady = panel && (isViewPage || findSaveButton(panel));
+      // Save button is the primary signal, but under load LinkedIn can render the
+      // description before the button — accept either so we don't wait needlessly.
+      const panelReady = panel && (isViewPage || findSaveButton(panel) || getDescription(panel).length > 30);
       if (panelReady) {
         if (jobId !== previousJobId) return { jobId, panel };
         // URL hasn't changed — the clicked card was already the displayed job.
@@ -423,7 +425,13 @@ async function trackAllVisible(port, isStopped) {
         const result = await waitForPanelJob(prevJobId);
         if (!result) {
           const reason = 'panel/job did not load after click';
-          console.warn('[LJT] card', i, 'failed:', reason, { prevJobId, cardJobId, urlAfterWait: location.href });
+          const panel = getDetailPanel();
+          console.warn('[LJT] card', i, 'failed:', reason, {
+            prevJobId, cardJobId, urlAfterWait: location.href,
+            urlJobId: getJobIdFromUrl(), hasPanel: !!panel,
+            hasSaveBtn: !!(panel && findSaveButton(panel)),
+            descLen: panel ? getDescription(panel).length : 0,
+          });
           errors.push(`Card ${i + 1}: ${reason}`);
           failed++; done++; port.postMessage({ type: 'progress', done, total, skipped, failed }); continue;
         }
