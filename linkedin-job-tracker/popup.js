@@ -99,6 +99,7 @@ async function render() {
   const scoreAllBtn = document.getElementById('scoreAllBtn');
   scoreAllBtn.disabled = jobs.length === 0 || !hasProfile;
   scoreAllBtn.title    = !hasProfile ? 'Upload your resume in Settings first' : '';
+  document.getElementById('resetScoresBtn').disabled = !jobs.some(j => typeof j.fit_score === 'number');
   document.getElementById('clearBtn').disabled = jobs.length === 0;
 
   if (jobs.length === 0) {
@@ -1025,16 +1026,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     await saveJobs([]);
     render();
   });
+  document.getElementById('resetScoresBtn').addEventListener('click', async () => {
+    if (!confirm('Reset all fit scores? Run Score All again to re-score.')) return;
+    const jobs = await loadJobs();
+    jobs.forEach(j => delete j.fit_score);
+    await saveJobs(jobs);
+    render();
+  });
   document.getElementById('candidateProfileArea').addEventListener('input', scheduleAutoSave);
   document.getElementById('resumePromptArea').addEventListener('input', scheduleAutoSave);
   document.getElementById('scoreThresholdInput').addEventListener('input', scheduleAutoSave);
 
-  document.getElementById('genProfileBtn').addEventListener('click', async () => {
+  async function runGenerateProfile(resumeText) {
     const btn = document.getElementById('genProfileBtn');
     const statusEl = document.getElementById('uploadStatus');
     const spinner = '<span class="spinner"></span>';
-    const [sync, local] = await Promise.all([loadSyncSettings(), loadLocalResumeData()]);
-    if (!local.resumeText) return;
+    const sync = await loadSyncSettings();
     // Explicitly use the resume model (not scoring model)
     const resumeModel = getSelectedModel() || sync.selectedModel || 'openai/gpt-5.4-mini';
     const openrouterKey = document.getElementById('openrouterKey').value.trim() || sync.openrouterKey || '';
@@ -1049,20 +1056,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     statusEl.style.color = 'var(--muted-fg)';
     statusEl.innerHTML = `${spinner}Generating candidate profile…`;
     try {
-      const profile = await generateCandidateProfile(local.resumeText, openrouterKey, geminiKey, resumeModel);
+      const profile = await generateCandidateProfile(resumeText, openrouterKey, geminiKey, resumeModel);
       document.getElementById('candidateProfileArea').value = profile;
       await saveSyncSettings({ candidateProfile: profile });
       statusEl.innerHTML = '';
       statusEl.textContent = '✓ Profile generated and saved.';
       statusEl.style.color = 'var(--success)';
-      btn.disabled = false;
       render();
     } catch (err) {
       statusEl.innerHTML = '';
       statusEl.textContent = `Error: ${err.message}`;
       statusEl.style.color = 'var(--destructive)';
+    } finally {
       btn.disabled = false;
     }
+  }
+
+  document.getElementById('genProfileBtn').addEventListener('click', async () => {
+    const local = await loadLocalResumeData();
+    if (!local.resumeText) return;
+    await runGenerateProfile(local.resumeText);
   });
 
   document.getElementById('resumeUpload').addEventListener('change', async (e) => {
@@ -1098,10 +1111,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       const format    = isTex ? 'tex' : isDocx ? 'docx' : 'pdf';
       const truncated = text.slice(0, isTex ? 20000 : 4000);
       await saveLocalResumeData({ resumeText: truncated, resumeFormat: format, resumeFilename: file.name });
-      statusEl.innerHTML = '';
-      statusEl.textContent = `✓ File loaded (${format}). Click Generate Profile to continue.`;
-      statusEl.style.color = 'var(--success)';
       document.getElementById('genProfileBtn').disabled = false;
+      statusEl.innerHTML = '';
+      statusEl.textContent = `✓ File loaded (${format}).`;
+      statusEl.style.color = 'var(--success)';
+      await runGenerateProfile(truncated);
     } catch (err) {
       statusEl.innerHTML = '';
       statusEl.textContent = `Error: ${err.message}`;

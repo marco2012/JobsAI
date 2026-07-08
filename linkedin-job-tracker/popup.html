@@ -763,9 +763,16 @@
           </svg>
           Track All
         </button>
-        <button class="btn btn-amber" id="scoreAllBtn" disabled>
-          ⭐ Score All
-        </button>
+        <div style="display:flex;gap:4px">
+          <button class="btn btn-amber" id="scoreAllBtn" disabled style="flex:1">
+            ⭐ Score All
+          </button>
+          <button class="btn btn-outline" id="resetScoresBtn" disabled title="Reset all scores" style="flex:0 0 auto;padding:0 10px">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v5h5"/>
+            </svg>
+          </button>
+        </div>
         <button class="btn btn-green" id="exportBtn" disabled>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
