@@ -208,6 +208,14 @@
       color: var(--muted-fg);
       flex: 1;
     }
+    .progress-errors {
+      margin: 6px 0 0;
+      padding: 0 0 0 16px;
+      font-size: 10.5px;
+      color: var(--muted-fg);
+      max-height: 80px;
+      overflow-y: auto;
+    }
     .btn-stop {
       padding: 3px 10px;
       font-size: 11.5px;
@@ -802,6 +810,7 @@
         <span class="progress-text" id="progressText">Preparing…</span>
         <button class="btn btn-stop" id="stopBtn">Stop</button>
       </div>
+      <ul class="progress-errors" id="progressErrors" style="display:none"></ul>
     </div>
 
     <div class="job-list" id="jobList"></div>

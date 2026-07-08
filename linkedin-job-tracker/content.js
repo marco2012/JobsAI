@@ -344,7 +344,8 @@ async function trackAllVisible(port, isStopped) {
       await toggleJob(jobId, getJobTitle(panel), getCompany(panel), getJobUrl(jobId),
         desc, getLocation(panel), getPostedDate(panel), getApplicants(panel));
       port.postMessage({ type: 'done', done: 1, total: 1, skipped: 0, failed: 0 });
-    } catch {
+    } catch (err) {
+      console.error('[LJT] single-job track failed:', err);
       port.postMessage({ type: 'done', done: 0, total: 1, skipped: 0, failed: 1 });
     }
     return;
@@ -357,13 +358,16 @@ async function trackAllVisible(port, isStopped) {
   }
 
   const cards = getJobCards();
+  console.log('[LJT] Track All starting —', cards.length, 'card(s) found');
 
   if (!cards.length) {
+    console.warn('[LJT] no job cards found on this page', location.pathname);
     port.postMessage({ type: 'error', message: 'No job cards found on this page.' });
     return;
   }
 
   let done = 0, skipped = 0, failed = 0;
+  const errors = [];
   const total = cards.length;
   let aborted = false;
   const batchId = Date.now().toString();
@@ -374,12 +378,13 @@ async function trackAllVisible(port, isStopped) {
   for (let i = 0; i < total; i++) {
     if (aborted) break;
     if (isStopped()) {
-      port.postMessage({ type: 'stopped', done: done - skipped - failed, skipped, failed, total });
+      port.postMessage({ type: 'stopped', done: done - skipped - failed, skipped, failed, total, errors });
       return;
     }
     try {
       const preId = cards[i].dataset?.occludableJobId;
       if (preId && await isTracked(preId)) {
+        console.log('[LJT] card', i, 'skipped: already tracked', { jobId: preId });
         skipped++; done++;
         port.postMessage({ type: 'progress', done, total, skipped, failed });
         continue;
@@ -397,35 +402,50 @@ async function trackAllVisible(port, isStopped) {
         // On recommended/collections pages the card is an <li>; the inner <a> must be clicked
         (cards[i].querySelector('a[href*="/jobs/view/"]') || cards[i]).click();
         const result = await waitForPanelJob(prevJobId);
-        if (!result) { failed++; done++; port.postMessage({ type: 'progress', done, total, skipped, failed }); continue; }
+        if (!result) {
+          const reason = 'panel/job did not load after click';
+          console.warn('[LJT] card', i, 'failed:', reason, { prevJobId, cardJobId });
+          errors.push(`Card ${i + 1}: ${reason}`);
+          failed++; done++; port.postMessage({ type: 'progress', done, total, skipped, failed }); continue;
+        }
         jobId = result.jobId;
       }
 
       if (await isTracked(jobId)) {
+        console.log('[LJT] card', i, 'skipped: already tracked', { jobId });
         skipped++; done++;
         port.postMessage({ type: 'progress', done, total, skipped, failed });
         continue;
       }
 
       const { panel, desc } = await waitForDescription();
-      if (!panel) { failed++; done++; port.postMessage({ type: 'progress', done, total, skipped, failed }); continue; }
+      if (!panel) {
+        const reason = 'no detail panel found';
+        console.warn('[LJT] card', i, 'failed:', reason, { jobId });
+        errors.push(`Card ${i + 1}: ${reason}`);
+        failed++; done++; port.postMessage({ type: 'progress', done, total, skipped, failed }); continue;
+      }
 
       await toggleJob(
         jobId, getJobTitle(panel), getCompany(panel), getJobUrl(jobId),
         desc, getLocation(panel), getPostedDate(panel), getApplicants(panel), batchId
       );
+      console.log('[LJT] card', i, 'tracked:', getJobTitle(panel), { jobId });
 
       done++;
       port.postMessage({ type: 'progress', done, total, skipped, failed });
       await sleep(300);
-    } catch {
+    } catch (err) {
+      console.error('[LJT] card', i, 'failed with exception:', err);
+      errors.push(`Card ${i + 1}: ${err.message || err}`);
       failed++; done++;
       port.postMessage({ type: 'progress', done, total, skipped, failed });
     }
   }
 
   if (!aborted) {
-    port.postMessage({ type: 'done', done: done - skipped - failed, skipped, failed, total });
+    console.log(`[LJT] Track All done — ${done - skipped - failed} tracked, ${skipped} skipped, ${failed} failed (of ${total})`);
+    port.postMessage({ type: 'done', done: done - skipped - failed, skipped, failed, total, errors });
   }
 }
 

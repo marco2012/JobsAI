@@ -319,14 +319,14 @@ async function handleTrackAll({ tabId }) {
       } else if (msg.type === 'done') {
         const text = `Done! ${msg.done} new, ${msg.skipped} already tracked${msg.failed ? `, ${msg.failed} failed` : ''}`;
         await chrome.storage.local.set({
-          trackingState: { status: 'idle', done: msg.done, total: msg.total, skipped: msg.skipped, failed: msg.failed, message: text },
+          trackingState: { status: 'idle', done: msg.done, total: msg.total, skipped: msg.skipped, failed: msg.failed, message: text, errors: msg.errors || [] },
         });
         notify('Track All complete', `${msg.done} new job${msg.done !== 1 ? 's' : ''} tracked`);
         trackingPort = null;
       } else if (msg.type === 'stopped') {
         const text = `Stopped — ${msg.done} new, ${msg.skipped} already tracked${msg.failed ? `, ${msg.failed} failed` : ''}`;
         await chrome.storage.local.set({
-          trackingState: { status: 'idle', done: msg.done, total: msg.total, skipped: msg.skipped, failed: msg.failed, message: text },
+          trackingState: { status: 'idle', done: msg.done, total: msg.total, skipped: msg.skipped, failed: msg.failed, message: text, errors: msg.errors || [] },
         });
         trackingPort = null;
       } else if (msg.type === 'error') {

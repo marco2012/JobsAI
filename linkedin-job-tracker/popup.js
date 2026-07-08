@@ -830,6 +830,7 @@ function applyTrackingState(state) {
   if (state.status === 'running') {
     progressMode = 'tracking';
     setProgressVisible(true);
+    document.getElementById('progressErrors').style.display = 'none';
     trackAllBtn.disabled = true;
     stopBtn.disabled = false;
     stopBtn.textContent = 'Stop';
@@ -851,8 +852,19 @@ function applyTrackingState(state) {
     trackAllBtn.disabled = false;
     stopBtn.disabled = true;
     progressMode = null;
+    const errorsEl = document.getElementById('progressErrors');
+    if (state.errors?.length) {
+      errorsEl.replaceChildren(...state.errors.map(e => {
+        const li = document.createElement('li');
+        li.textContent = e;
+        return li;
+      }));
+      errorsEl.style.display = '';
+    } else {
+      errorsEl.style.display = 'none';
+    }
     render();
-    setTimeout(() => setProgressVisible(false), 3000);
+    if (!state.errors?.length) setTimeout(() => setProgressVisible(false), 3000);
   }
 }
 
